@@ -53,13 +53,34 @@ def _sqrt(C: torch.Tensor, eps: float = 1e-6) -> torch.Tensor:
     return (V @ torch.diag(e.sqrt()) @ V.T).to(C.dtype)
 
 
+def _noise(shape, shared: bool, gen, dev, dt) -> torch.Tensor:
+    """
+    Gaussian noise of `shape` = [S, ...]. If `shared`, one draw is broadcast
+    across the shadow axis (common random numbers) instead of each shadow
+    drawing its own.
+
+    Why this switch exists: per-shadow noise inflates within-ensemble spread,
+    which lowers membership AUC mechanically without removing anything. The
+    shared-noise arm holds that channel fixed, so
+        AUC(shared) - AUC(per-shadow)
+    is the part of any AUC drop attributable to masking rather than removal.
+    """
+    if shared:
+        base = torch.randn((1, *shape[1:]), generator=gen, device=dev, dtype=dt)
+        return base.expand(shape).clone()
+    return torch.randn(shape, generator=gen, device=dev, dtype=dt)
+
+
 def corrupt(probe: Probe, S: int, mode: str, param: float,
-            gen: torch.Generator, retain_x: torch.Tensor | None = None):
+            gen: torch.Generator, retain_x: torch.Tensor | None = None,
+            shared_noise: bool = False):
     """
     Build per-shadow corrupted copies of the probe.
 
-    retain_x: [*, D] sample of retain-group inputs, required for mode="whiten".
-              Estimated empirically -- do NOT pass the true covariance.
+    retain_x:     [*, D] sample of retain-group inputs, required for mode="whiten".
+                  Estimated empirically -- do NOT pass the true covariance.
+    shared_noise: broadcast one noise draw across shadows (see `_noise`).
+                  No effect on the deterministic modes (none/flip/whiten).
 
     Returns (X, ylab, yq) with X [S, P, N+1, D+1].
     """
@@ -72,16 +93,15 @@ def corrupt(probe: Probe, S: int, mode: str, param: float,
 
     elif mode in ("C1", "C3"):
         s = float(param) ** 0.5
-        shp = y[:, :, sl].shape
-        y[:, :, sl] += s * torch.randn(shp, generator=gen, device=dev, dtype=dt)
+        y[:, :, sl] += s * _noise(y[:, :, sl].shape, shared_noise, gen, dev, dt)
         if mode == "C3":
-            shp = x[:, :, sl, :].shape
-            x[:, :, sl, :] += s * torch.randn(shp, generator=gen, device=dev, dtype=dt)
+            x[:, :, sl, :] += s * _noise(x[:, :, sl, :].shape, shared_noise,
+                                         gen, dev, dt)
 
     elif mode == "C2":
         s = float(param) ** 0.5
-        shp = x[:, :, sl, :].shape
-        x[:, :, sl, :] += s * torch.randn(shp, generator=gen, device=dev, dtype=dt)
+        x[:, :, sl, :] += s * _noise(x[:, :, sl, :].shape, shared_noise,
+                                     gen, dev, dt)
 
     elif mode == "flip":
         y[:, :, sl] *= (1.0 - 2.0 * float(param))

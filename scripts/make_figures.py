@@ -1,13 +1,19 @@
 #!/usr/bin/env python
 """
-Figures from artifacts/results_{task}.csv.
+Figures from artifacts/results_{name}.csv.
 
     python scripts/make_figures.py --config configs/regression.yaml
 
 Produces:
-  figures/auc_sweep_{task}.pdf     AUC vs strength, arch x mode, both observables
-  figures/frontier_{task}.pdf      (alpha, eps) against the Pareto frontier
-  figures/staircase_{task}.pdf     training traces (ATTN-S staircase vs ATTN-M)
+  figures/auc_sweep_{name}.pdf     AUC vs strength, arch x mode, both observables,
+                                   with bootstrap bands and the masking control
+  figures/frontier_{name}.pdf      (alpha, eps) against the Pareto frontier
+  figures/staircase_{name}.pdf     training traces (ATTN-S staircase vs ATTN-M)
+
+The AUC panels plot the MATCHED-CONTEXT AUC (`auc_matched_*`), not the legacy
+clean-context one. See sweep.py's module docstring for why the clean-context
+comparison is not a membership test. The legacy curve is drawn faintly so the
+size of the confound stays visible.
 """
 import argparse
 import csv
@@ -36,12 +42,12 @@ def main():
     ap.add_argument("--config", required=True)
     args = ap.parse_args()
     cfg = yaml.safe_load(open(args.config))
-    task = cfg["task"]
+    name = cfg["name"]
     adir = pathlib.Path(cfg["paths"]["artifacts"])
     fdir = pathlib.Path(cfg["paths"]["figures"])
     fdir.mkdir(parents=True, exist_ok=True)
 
-    rows = load(adir / f"results_{task}.csv")
+    rows = load(adir / f"results_{name}.csv")
     archs = sorted({r["arch"] for r in rows})
     modes = [m for m in ("C1", "C2", "C3", "flip", "whiten")
              if any(r["mode"] == m for r in rows)]
@@ -56,9 +62,21 @@ def main():
             sel = sorted([r for r in rows if r["arch"] == arch and r["mode"] == mode],
                          key=lambda r: r["param"])
             xs = [r["param"] for r in sel]
-            for obs, style in (("loss", "-o"), ("output", "-s")):
-                ax.plot(xs, [r[f"auc_{obs}"] for r in sel], style, ms=3,
-                        label=f"AUC({obs})")
+            for obs, style, col in (("loss", "-o", "C0"), ("output", "-s", "C1")):
+                ax.plot(xs, [r[f"auc_matched_{obs}"] for r in sel], style,
+                        ms=3, color=col, label=f"AUC({obs})")
+                ax.fill_between(xs,
+                                [r[f"auc_matched_{obs}_lo"] for r in sel],
+                                [r[f"auc_matched_{obs}_hi"] for r in sel],
+                                color=col, alpha=0.20, lw=0)
+                # legacy clean-context comparison, for reference only
+                ax.plot(xs, [r[f"auc_{obs}"] for r in sel], ls="--", lw=0.7,
+                        color=col, alpha=0.45)
+            # shared-noise control: where it separates from the solid curve, the
+            # drop is variance masking rather than removal
+            if mode in ("C1", "C2", "C3"):
+                ax.plot(xs, [r["auc_shared_loss"] for r in sel], ":", lw=1.1,
+                        color="C0", alpha=0.9, label="AUC(loss), shared noise")
             ax.axhline(0.5, color="k", lw=0.8, ls=":")
             if mode == "flip":
                 ax.axvline(0.5, color="r", lw=0.8, ls="--", alpha=0.6)
@@ -75,9 +93,9 @@ def main():
                 ax.set_title(mode)
             if i == 0 and j == 0:
                 ax.legend(fontsize=7, loc="lower left")
-    fig.suptitle(f"Membership AUC vs corruption strength — {task}", y=1.0)
+    fig.suptitle(f"Membership AUC vs corruption strength — {name}", y=1.0)
     fig.tight_layout()
-    fig.savefig(fdir / f"auc_sweep_{task}.pdf", bbox_inches="tight")
+    fig.savefig(fdir / f"auc_sweep_{name}.pdf", bbox_inches="tight")
 
     # ------------------------------------------------------ Pareto frontier
     fig2, axes2 = plt.subplots(1, len(archs), figsize=(4.4 * len(archs), 3.8),
@@ -98,12 +116,12 @@ def main():
         ax.axvline(base, color="gray", ls=":", lw=0.8)
         ax.set_xlabel(r"$\alpha$ = removal"); ax.set_ylabel(r"$\varepsilon$ = preservation")
         ax.set_title(arch); ax.legend(fontsize=7)
-    fig2.suptitle(f"Removal–preservation plane — {task}")
+    fig2.suptitle(f"Removal–preservation plane — {name}")
     fig2.tight_layout()
-    fig2.savefig(fdir / f"frontier_{task}.pdf", bbox_inches="tight")
+    fig2.savefig(fdir / f"frontier_{name}.pdf", bbox_inches="tight")
 
     # ---------------------------------------------------------- staircases
-    blob = torch.load(adir / f"ensembles_{task}.pt", map_location="cpu",
+    blob = torch.load(adir / f"ensembles_{name}.pt", map_location="cpu",
                       weights_only=False)
     fig3, ax3 = plt.subplots(figsize=(5, 3.4))
     for arch in archs:
@@ -111,10 +129,10 @@ def main():
         k = max(1, len(tr) // 400)
         ax3.plot(range(0, len(tr), k), tr[::k], lw=1, label=f"{arch} (full)")
     ax3.set_xlabel("step"); ax3.set_ylabel("query MSE")
-    ax3.set_title(f"Training dynamics — {task}")
+    ax3.set_title(f"Training dynamics — {name}")
     ax3.legend(fontsize=8)
     fig3.tight_layout()
-    fig3.savefig(fdir / f"staircase_{task}.pdf", bbox_inches="tight")
+    fig3.savefig(fdir / f"staircase_{name}.pdf", bbox_inches="tight")
 
     print(f"figures -> {fdir}/")
 

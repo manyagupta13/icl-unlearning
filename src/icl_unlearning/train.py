@@ -24,7 +24,7 @@ from .data import MixtureSpec, make_sequences
 from .models import LinearAttnICL
 
 
-def train_ensemble(spec: MixtureSpec, groups: list[str], arch: str, task: str,
+def train_ensemble(spec: MixtureSpec, groups: list[str], arch: str,
                    S: int = 100, batch_per_shadow: int = 8, steps: int = 6000,
                    lr: float = 5e-3, momentum: float = 0.9, optim: str = "sgd",
                    grad_clip: float = 5.0, init_scale: float = 0.05,
@@ -51,7 +51,7 @@ def train_ensemble(spec: MixtureSpec, groups: list[str], arch: str, task: str,
     trace, t0 = [], time.time()
     for t in range(steps):
         X, ylab, yq = make_sequences(spec, groups, S, batch_per_shadow,
-                                     task, gen, device, dtype)
+                                     gen, device, dtype)
         yhat = model(X, ylab)
         # mean over batch, summed over shadows: each shadow gets its own grad
         per_shadow = ((yhat - yq) ** 2).mean(dim=1)
@@ -66,19 +66,19 @@ def train_ensemble(spec: MixtureSpec, groups: list[str], arch: str, task: str,
         if t % trace_every == 0:
             trace.append(float(per_shadow.mean()))
         if log_every and t % log_every == 0:
-            print(f"    [{arch}|{task}] step {t:6d}  loss {per_shadow.mean():.4f}",
+            print(f"    [{arch}] step {t:6d}  loss {per_shadow.mean():.4f}",
                   flush=True)
 
     with torch.no_grad():
         M = model.M.detach().clone()
 
-    print(f"    [{arch}|{task}] done in {time.time()-t0:.0f}s  "
+    print(f"    [{arch}] done in {time.time()-t0:.0f}s  "
           f"final {sum(trace[-20:])/max(1,len(trace[-20:])):.4f}", flush=True)
     return M, torch.tensor(trace)
 
 
 @torch.no_grad()
-def per_group_mse(spec: MixtureSpec, M: torch.Tensor, arch: str, task: str,
+def per_group_mse(spec: MixtureSpec, M: torch.Tensor, arch: str,
                   S: int, gen: torch.Generator, device, n_eval: int = 256,
                   dtype=torch.float32) -> dict[str, float]:
     """
@@ -88,7 +88,7 @@ def per_group_mse(spec: MixtureSpec, M: torch.Tensor, arch: str, task: str,
     from .models import apply_frozen
     out = {}
     for g in spec.names:
-        X, ylab, yq = make_sequences(spec, [g], S, n_eval, task, gen, device, dtype)
+        X, ylab, yq = make_sequences(spec, [g], S, n_eval, gen, device, dtype)
         yhat = apply_frozen(M, X, ylab, spec.N)
         out[g] = float(((yhat - yq) ** 2).mean())
     return out

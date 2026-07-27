@@ -1,10 +1,10 @@
 #!/usr/bin/env python
 """
-Train every shadow ensemble for one task and cache them.
+Train every shadow ensemble for one config and cache them.
 
     python scripts/train_ensembles.py --config configs/regression.yaml
 
-Produces artifacts/ensembles_{task}.pt containing, for each architecture:
+Produces artifacts/ensembles_{name}.pt containing, for each architecture:
     ("ATTN-S", "full")    trained on all groups
     ("ATTN-S", "oracle")  retrained on retain groups only
     ...
@@ -12,6 +12,7 @@ Produces artifacts/ensembles_{task}.pt containing, for each architecture:
 This is the only expensive step. The sweep reuses these.
 """
 import argparse
+import hashlib
 import pathlib
 import sys
 
@@ -24,6 +25,18 @@ from icl_unlearning.data import MixtureSpec               # noqa: E402
 from icl_unlearning.train import per_group_mse, train_ensemble   # noqa: E402
 
 
+def stable_offset(*parts: str, mod: int = 10_000) -> int:
+    """
+    Deterministic per-(arch, hypothesis) seed offset.
+
+    NOT Python's hash(): hash() on str/tuple is salted by PYTHONHASHSEED, which
+    is randomised per process, so using it here silently made every training
+    run irreproducible. blake2b is stable across processes and machines.
+    """
+    h = hashlib.blake2b("|".join(parts).encode(), digest_size=8).digest()
+    return int.from_bytes(h, "big") % mod
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--config", required=True)
@@ -31,9 +44,9 @@ def main():
     args = ap.parse_args()
 
     cfg = yaml.safe_load(open(args.config))
-    task, d, tr = cfg["task"], cfg["data"], cfg["train"]
+    name, d, tr = cfg["name"], cfg["data"], cfg["train"]
     dev = args.device
-    print(f"device={dev}  task={task}")
+    print(f"device={dev}  config={name}")
 
     spec = MixtureSpec(names=d["groups"], eigs=d["eigs"], D=d["D"], N=d["N"],
                        basis=d["basis"], seed=d["seed"])
@@ -46,26 +59,26 @@ def main():
         for hyp, groups in [("full", d["groups"]), ("oracle", retain)]:
             print(f"[{arch} | {hyp}] groups={groups}")
             M, trace = train_ensemble(
-                spec, groups, arch, task,
+                spec, groups, arch,
                 S=tr["n_shadows"], batch_per_shadow=tr["batch_per_shadow"],
                 steps=tr["steps"], lr=tr["lr"], momentum=tr["momentum"],
                 optim=tr["optim"], grad_clip=tr["grad_clip"],
                 init_scale=tr["init_scale"],
-                seed=tr["seed"] + hash((arch, hyp)) % 10_000,
+                seed=tr["seed"] + stable_offset(arch, hyp),
                 device=dev)
             out[f"{arch}|{hyp}|M"] = M.cpu()
             out[f"{arch}|{hyp}|trace"] = trace.cpu()
 
         # sanity: per-group MSE should track participation ratio
         gen = torch.Generator(device=dev).manual_seed(999)
-        mse = per_group_mse(spec, out[f"{arch}|full|M"].to(dev), arch, task,
+        mse = per_group_mse(spec, out[f"{arch}|full|M"].to(dev), arch,
                             tr["n_shadows"], gen, dev)
         print(f"  per-group MSE: " + "  ".join(f"{g}={v:.4f}" for g, v in mse.items()))
         out[f"{arch}|per_group_mse"] = torch.tensor([mse[g] for g in spec.names])
 
     adir = pathlib.Path(cfg["paths"]["artifacts"])
     adir.mkdir(parents=True, exist_ok=True)
-    path = adir / f"ensembles_{task}.pt"
+    path = adir / f"ensembles_{name}.pt"
     torch.save({"cfg": cfg, **out}, path)
     print(f"saved -> {path}")
 

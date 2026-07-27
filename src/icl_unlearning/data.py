@@ -63,7 +63,7 @@ class MixtureSpec:
 # ------------------------------------------------------------------- sequences
 
 def make_sequences(spec: MixtureSpec, groups: list[str], S: int, B: int,
-                   task: str, gen: torch.Generator, device, dtype=torch.float32):
+                   gen: torch.Generator, device, dtype=torch.float32):
     """
     One in-context task per (shadow, batch) element: N context pairs + 1 query,
     all drawn from a single group sampled uniformly from `groups`.
@@ -85,9 +85,6 @@ def make_sequences(spec: MixtureSpec, groups: list[str], S: int, B: int,
 
     beta = torch.randn(S, B, D, generator=gen, device=device, dtype=dtype)
     y = torch.einsum("sbnd,sbd->sbn", x, beta)
-    if task == "classification":
-        y = torch.sign(y)
-        y = torch.where(y == 0, torch.ones_like(y), y)
 
     yq = y[:, :, -1].clone()
     ylab = y.clone()
@@ -112,7 +109,7 @@ class Probe:
 
 
 def make_probe(spec: MixtureSpec, counts: dict[str, int], forget: str,
-               P: int, task: str, gen: torch.Generator, device,
+               P: int, gen: torch.Generator, device,
                dtype=torch.float32) -> Probe:
     """
     counts: tokens per group in the context, e.g. {"z1": 10, "z2": 10, "z3": 11}.
@@ -135,9 +132,6 @@ def make_probe(spec: MixtureSpec, counts: dict[str, int], forget: str,
 
     beta = torch.randn(P, D, generator=gen, device=device, dtype=dtype)
     y = torch.einsum("pnd,pd->pn", x, beta)
-    if task == "classification":
-        y = torch.sign(y)
-        y = torch.where(y == 0, torch.ones_like(y), y)
 
     start = N - counts[forget]
     return Probe(x=x, y=y, forget_slice=slice(start, N), P=P)

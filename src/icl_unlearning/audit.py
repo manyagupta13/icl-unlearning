@@ -56,14 +56,73 @@ def _auc_1d(pos: torch.Tensor, neg: torch.Tensor) -> torch.Tensor:
     return (r1 - n1 * (n1 + 1) / 2.0) / (n1 * n0)
 
 
+def auc_per_probe(score_h1: torch.Tensor, score_h0: torch.Tensor) -> torch.Tensor:
+    """
+    Vectorised Mann-Whitney AUC along the shadow axis, one value per probe point.
+
+        score_* : [S, P]   ->   [P]
+
+    No tie correction: the observables are continuous, so ties occur with
+    probability zero. `_auc_1d` keeps the tie-corrected reference path and the
+    tests check the two agree.
+    """
+    n1, n0 = score_h1.shape[0], score_h0.shape[0]
+    allv = torch.cat([score_h1, score_h0], dim=0)                 # [n1+n0, P]
+    order = torch.argsort(allv, dim=0)
+    ranks = torch.empty_like(allv)
+    idx = torch.arange(1, n1 + n0 + 1, device=allv.device, dtype=allv.dtype)
+    ranks.scatter_(0, order, idx.unsqueeze(1).expand_as(allv).contiguous())
+    r1 = ranks[:n1].sum(dim=0)
+    return (r1 - n1 * (n1 + 1) / 2.0) / (n1 * n0)
+
+
 def membership_auc(score_h1: torch.Tensor, score_h0: torch.Tensor) -> float:
     """
     score_* : [S, P]  (shadow models x probe points)
     Returns the per-probe AUC averaged over probe points.
     """
-    P = score_h1.shape[1]
-    vals = [_auc_1d(score_h1[:, p], score_h0[:, p]) for p in range(P)]
-    return float(torch.stack(vals).mean())
+    return float(auc_per_probe(score_h1, score_h0).mean())
+
+
+def membership_auc_ci(score_h1: torch.Tensor, score_h0: torch.Tensor,
+                      n_boot: int = 200, alpha: float = 0.05,
+                      seed: int = 0, resample_probe: bool = True):
+    """
+    Bootstrap CI for the probe-averaged membership AUC.
+
+    Two sources of noise are resampled:
+      - the shadow axis (S draws per hypothesis), independently for H1 and H0
+      - the probe axis, if `resample_probe` -- probe points are i.i.d. draws
+        from the probe distribution, so resampling them propagates the
+        "we only drew one probe" uncertainty into the interval
+
+    Without this the AUC-vs-strength curves are point estimates with S=100
+    behind each one, and a 0.03 wiggle is indistinguishable from an effect.
+
+    Returns (auc, lo, hi).
+    """
+    S1, P = score_h1.shape
+    S0 = score_h0.shape[0]
+    dev = score_h1.device
+    g = torch.Generator(device="cpu").manual_seed(seed)
+
+    point = float(auc_per_probe(score_h1, score_h0).mean())
+
+    i1 = torch.randint(0, S1, (n_boot, S1), generator=g).to(dev)
+    i0 = torch.randint(0, S0, (n_boot, S0), generator=g).to(dev)
+    ip = (torch.randint(0, P, (n_boot, P), generator=g).to(dev)
+          if resample_probe else None)
+
+    vals = []
+    for b in range(n_boot):
+        h1, h0 = score_h1[i1[b]], score_h0[i0[b]]
+        if ip is not None:
+            h1, h0 = h1[:, ip[b]], h0[:, ip[b]]
+        vals.append(auc_per_probe(h1, h0).mean())
+    v = torch.stack(vals)
+    lo = float(torch.quantile(v, alpha / 2))
+    hi = float(torch.quantile(v, 1 - alpha / 2))
+    return point, lo, hi
 
 
 def symmetrised_auc(a: float) -> float:

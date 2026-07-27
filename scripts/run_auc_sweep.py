@@ -4,8 +4,8 @@ Run the corruption sweep against cached ensembles.
 
     python scripts/run_auc_sweep.py --config configs/regression.yaml
 
-Loads artifacts/ensembles_{task}.pt, sweeps every (arch, mode, strength) in the
-config grid, and writes artifacts/results_{task}.csv.
+Loads artifacts/ensembles_{name}.pt, sweeps every (arch, mode, strength) in the
+config grid, and writes artifacts/results_{name}.csv.
 
 No training happens here. Re-run freely with new grids.
 """
@@ -30,18 +30,18 @@ def main():
     args = ap.parse_args()
 
     cfg = yaml.safe_load(open(args.config))
-    task, d, pr = cfg["task"], cfg["data"], cfg["probe"]
+    name, d, pr = cfg["name"], cfg["data"], cfg["probe"]
     dev = args.device
 
     adir = pathlib.Path(cfg["paths"]["artifacts"])
-    blob = torch.load(adir / f"ensembles_{task}.pt", map_location=dev,
+    blob = torch.load(adir / f"ensembles_{name}.pt", map_location=dev,
                       weights_only=False)
 
     spec = MixtureSpec(names=d["groups"], eigs=d["eigs"], D=d["D"], N=d["N"],
                        basis=d["basis"], seed=d["seed"])
 
     gen = torch.Generator(device=dev).manual_seed(pr["seed"])
-    probe = make_probe(spec, pr["counts"], d["forget"], pr["P"], task, gen, dev)
+    probe = make_probe(spec, pr["counts"], d["forget"], pr["P"], gen, dev)
 
     # empirical retain-group inputs for the whiten arm (never the true Lambda)
     retain = [g for g in d["groups"] if g != d["forget"]]
@@ -55,9 +55,10 @@ def main():
             ensembles[(arch, hyp)] = blob[f"{arch}|{hyp}|M"].to(dev)
 
     rows = run_sweep(spec, probe, ensembles, cfg["sweep"]["grids"],
-                     seed=cfg["sweep"]["seed"], device=dev, retain_x=retain_x)
+                     seed=cfg["sweep"]["seed"], device=dev, retain_x=retain_x,
+                     n_boot=cfg["sweep"].get("n_boot", 200))
 
-    path = adir / f"results_{task}.csv"
+    path = adir / f"results_{name}.csv"
     with open(path, "w", newline="") as f:
         w = csv.DictWriter(f, fieldnames=list(rows[0].keys()))
         w.writeheader()

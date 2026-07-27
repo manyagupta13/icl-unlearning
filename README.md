@@ -3,15 +3,18 @@
 Membership-inference AUC sweeps for in-context unlearning in linear-attention
 in-context learners.
 
-Sweeps corruption strength against membership AUC across the full cross product:
+Task is **in-context linear regression** (`y = xᵀβ`), swept over two
+parameterisations of the same function class, **ATTN-S** and **ATTN-M**.
 
-|                | regression | classification |
-|----------------|------------|----------------|
-| **ATTN-S**     | ✓          | ✓              |
-| **ATTN-M**     | ✓          | ✓              |
-
-with AUC reported on **both** observables (loss `ℓ = (ŷ−y)²` and signed output `ŷ`),
+AUC is reported on **both** observables (loss `ℓ = (ŷ−y)²` and signed output `ŷ`),
 because the two disagree and the disagreement is the point.
+
+> **Read `NOTES.md` before running anything.** It documents an algebra error in
+> the "what to expect" predictions below (C1 and C2 have their roles swapped),
+> the closed-form AUC(σ²) curve available in this model, and what is still
+> missing statistically. Predictions 2 and 3 in this README are retained
+> verbatim as the *original* hypotheses; `NOTES.md` §0 explains why they are
+> wrong.
 
 ---
 
@@ -43,20 +46,20 @@ something is wrong.
 ```
 icl-unlearning/
 ├── configs/
-│   ├── regression.yaml         # D, N, group spectra, optim, sweep grids
-│   └── classification.yaml
+│   └── regression.yaml         # D, N, group spectra, optim, sweep grids
 ├── src/icl_unlearning/
 │   ├── data.py                 # covariance-defined mixture, sequences, frozen probe
 │   ├── models.py               # ATTN-S (factored) / ATTN-M (merged)
 │   ├── train.py                # ensemble training, S shadows in parallel
 │   ├── corrupt.py              # C1 / C2 / flip-strength / whiten-retain
-│   ├── audit.py                # membership AUC + distributional (KL, MMD)
+│   ├── audit.py                # membership AUC + bootstrap CI + KL/MMD
 │   └── sweep.py                # orchestration
 ├── scripts/
-│   ├── train_ensembles.py      # → artifacts/ensembles_{task}.pt
-│   ├── run_auc_sweep.py        # → artifacts/results_{task}.csv
+│   ├── train_ensembles.py      # → artifacts/ensembles_{name}.pt
+│   ├── run_auc_sweep.py        # → artifacts/results_{name}.csv
 │   └── make_figures.py         # → figures/*.pdf
 ├── tests/test_sanity.py
+├── NOTES.md                    # critique: what is missing for publishable results
 └── requirements.txt
 ```
 
@@ -70,13 +73,12 @@ pip install -r requirements.txt
 python scripts/train_ensembles.py --config configs/regression.yaml
 python scripts/run_auc_sweep.py   --config configs/regression.yaml
 python scripts/make_figures.py    --config configs/regression.yaml
-
-python scripts/train_ensembles.py --config configs/classification.yaml
-python scripts/run_auc_sweep.py   --config configs/classification.yaml
 ```
 
-Everything is keyed by `(task, arch, hypothesis)`; artifacts are cached, so
-re-running the sweep with a new grid does not retrain.
+Everything is keyed by `(name, arch, hypothesis)`; artifacts are cached, so
+re-running the sweep with a new grid does not retrain. To run a variant
+(different `D`, different forget group, different spectra), copy
+`configs/regression.yaml`, change `name:`, and the artifacts will not collide.
 
 ---
 
@@ -121,19 +123,33 @@ specifically.
 
 ### AUC conventions
 
+- **Matched context is the estimand.** `auc_matched_*` scores H1 and H0 on the
+  *same* corrupted probe with the same noise draw. The legacy `auc_*` scores H0
+  on the clean probe, which lets a distinguisher win by detecting the edit
+  rather than the membership — and that confound grows with corruption
+  strength. Both are emitted; plot the matched one.
 - Reported **raw**, not symmetrised. `AUC → 0.5` is the success target;
   `AUC < 0.5` means the attacker's statistic is *inverted*, which is not
   success — see `audit.py::symmetrised_auc` if you want the corrected version.
 - Computed **per probe point** over the shadow axis, then averaged. The probe
   is frozen across shadows so cross-model variance reflects membership only.
-- Each shadow draws its **own** corruption noise. This is realistic, but note
-  it means stochastic corruptions (C1/C2) inflate within-ensemble spread, which
-  lowers AUC *mechanically* without removing anything. `audit.py` also returns
-  `spread_h1` so you can separate masking from removal. Watch this on the C1 arm.
+- **Bootstrap CIs** over the shadow and probe axes come out as
+  `auc_matched_*_lo/_hi`. At `n_shadows: 100` these are wide. Use 512 for
+  anything you intend to publish.
+- Each shadow draws its **own** corruption noise, which inflates within-ensemble
+  spread and lowers AUC *mechanically* without removing anything. The
+  `shared_noise=True` arm repeats the sweep with one noise draw broadcast across
+  shadows; `masking_* = AUC(shared) − AUC(per-shadow)` is the size of that
+  artefact. Per `NOTES.md` §0, expect the C2 arm to be **entirely** masking.
 
 ---
 
 ## What to expect (predictions worth falsifying)
+
+> Predictions 2 and 3 are **already falsified on paper** — see `NOTES.md` §0.
+> The label enters the context vector quadratically, so C1 carries an `O(σ²)`
+> mean shift and C2 is the zero-mean arm, exactly opposite to what is claimed
+> below. Kept verbatim as the original hypotheses.
 
 1. **Output-AUC saturates at 1.0** across the whole grid, for every method.
    If so, the output observable carries no gradient information anywhere —

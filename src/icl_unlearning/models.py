@@ -1,5 +1,5 @@
 """
-One layer of linear self-attention doing in-context regression / classification.
+One layer of linear self-attention doing in-context linear regression.
 
     Q = X W_Q,  K = X W_K,  A = (1/(N+1)) Q K^T,  Yhat = A X
     yhat = Yhat[N+1, D+1]
