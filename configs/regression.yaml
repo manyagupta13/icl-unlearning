@@ -1,0 +1,45 @@
+task: regression
+
+data:
+  D: 4
+  N: 31
+  basis: identity          # "random" to rotate each group into its own eigenbasis
+  seed: 0
+  groups: [z1, z2, z3]
+  forget: z3               # the flattest spectrum / least-learned group
+  eigs:                    # trace-normalised internally
+    z1: [0.70, 0.15, 0.10, 0.05]     # PR 1.91  highly anisotropic
+    z2: [0.60, 0.20, 0.10, 0.10]     # PR 2.38  anisotropic
+    z3: [0.40, 0.30, 0.20, 0.10]     # PR 3.33  flattest
+
+probe:
+  P: 64                    # probe points, frozen across shadows
+  counts: {z1: 10, z2: 10, z3: 11}
+  seed: 777
+
+train:
+  archs: [ATTN-S, ATTN-M]
+  n_shadows: 100           # per hypothesis
+  batch_per_shadow: 8
+  steps: 6000
+  optim: sgd               # sgd keeps the ATTN-S staircase visible; adam flattens it
+  lr: 0.005                # see README: lr/(1-momentum) is the effective rate
+  momentum: 0.9
+  grad_clip: 5.0
+  init_scale: 0.05
+  seed: 1
+
+sweep:
+  seed: 2
+  grids:
+    none:  [0.0]
+    C1:    [0.0, 0.001, 0.003, 0.01, 0.03, 0.1, 0.3, 1.0, 3.0, 10.0]
+    C2:    [0.0, 0.001, 0.003, 0.01, 0.03, 0.1, 0.3, 1.0, 3.0, 10.0]
+    C3:    [0.0, 0.01, 0.1, 1.0, 10.0]
+    # grid t finely near 0.5: that is the zero-mean dead zone
+    flip:  [0.0, 0.1, 0.2, 0.3, 0.4, 0.45, 0.5, 0.55, 0.6, 0.7, 0.8, 0.9, 1.0, 1.1, 1.25]
+    whiten: [0.0, 0.25, 0.5, 0.75, 1.0]
+
+paths:
+  artifacts: artifacts
+  figures: figures

@@ -1,0 +1,6 @@
+__pycache__/
+*.pyc
+artifacts/*.pt
+artifacts/*.csv
+figures/*.pdf
+.pytest_cache/
