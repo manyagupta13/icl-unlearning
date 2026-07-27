@@ -151,18 +151,25 @@ def figure_for_mode(rows, mode, archs, task, fdir, rows_have_ci, rows_have_base)
         ax.set_title(arch, fontsize=11)
         if i == 0:
             ax.set_ylabel("membership AUC")
-            ax.legend(fontsize=7, loc="lower left", framealpha=0.9, ncol=2)
 
     lo = min(0.45, min(r["auc_output"] for r in rows if r["mode"] == mode) - 0.03)
     axes[0][0].set_ylim(lo, 1.02)
 
-    fig.suptitle(f"{TITLE[mode]}  —  {task}", y=0.99, fontsize=12)
+    # Shared legend BELOW the panels. In a real run the curves descend from the
+    # baseline toward 0.5, so the lower-left corner -- the obvious in-panel spot
+    # -- is exactly where the endpoint you care about lands.
+    handles, labels = axes[0][0].get_legend_handles_labels()
+    fig.legend(handles, labels, fontsize=8, ncol=min(4, len(labels)),
+               loc="upper center", bbox_to_anchor=(0.5, 0.045),
+               frameon=False)
+
+    fig.suptitle(f"{TITLE[mode]}  —  {task}", y=1.0, fontsize=12)
     if rows_have_ci:
-        fig.text(0.5, -0.02,
+        fig.text(0.5, -0.055,
                  "bands = 95% percentile bootstrap CI over shadow models; "
                  "grey = no-edit control (fully-trained vs retrain oracle)",
                  ha="center", fontsize=7.5, color="0.35")
-    fig.tight_layout()
+    fig.tight_layout(rect=(0, 0.06, 1, 1))
     out = fdir / f"auc_{mode}_{task}.pdf"
     fig.savefig(out, bbox_inches="tight")
     plt.close(fig)
@@ -250,7 +257,7 @@ def main():
     rows_have_base = has(rows, "baseline_auc_output")
 
     if not rows_have_base:
-        print("note: results CSV predates the baseline columns — re-run "
+        print("note: results CSV predates the baseline columns -- re-run "
               "scripts/run_auc_sweep.py to get the no-edit reference lines.")
 
     written = []
@@ -271,7 +278,7 @@ def main():
         for arch in archs:
             b = next(r for r in rows if r["arch"] == arch)
             v = b["baseline_auc_output"]
-            flag = "OK" if max(v, 1 - v) > 0.9 else "DEAD BASELINE — see diagnose.py"
+            flag = "OK" if max(v, 1 - v) > 0.9 else "DEAD BASELINE -- see diagnose.py"
             print(f"  {arch:8s} no-edit baseline AUC(output) = {v:.3f}   {flag}")
 
     print("\nfigures:")
