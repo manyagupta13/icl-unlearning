@@ -55,7 +55,8 @@ def main():
             ensembles[(arch, hyp)] = blob[f"{arch}|{hyp}|M"].to(dev)
 
     rows = run_sweep(spec, probe, ensembles, cfg["sweep"]["grids"],
-                     seed=cfg["sweep"]["seed"], device=dev, retain_x=retain_x)
+                     seed=cfg["sweep"]["seed"], device=dev, retain_x=retain_x,
+                     n_boot=cfg["sweep"].get("n_boot", 300))
 
     path = adir / f"results_{task}.csv"
     with open(path, "w", newline="") as f:

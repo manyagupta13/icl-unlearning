@@ -1,0 +1,85 @@
+# High-signal variant of regression.yaml.
+#
+# WHY THIS EXISTS
+# The D=4 config produced a dead audit: baseline AUC(output) ~ 0.47 with no
+# edit applied, i.e. the fully-trained ensemble and the retrain oracle were
+# indistinguishable before anything was unlearned. With D=4 and trace-normalised
+# spectra there is simply not enough room for three groups to differ -- every
+# spectrum is a point on the 3-simplex, the achievable participation ratios span
+# 1.9 to 3.3 out of a maximum of 4, and the optimal read-out matrix for "all
+# groups" is very close to the one for "retain groups only". The two hypotheses
+# converge to nearly the same function, so there is no membership signal for any
+# attacker to find and the whole corruption sweep measures noise.
+#
+# The fix is more room plus a starker contrast:
+#   D 4 -> 16     the simplex is 15-dimensional; spectra can actually separate
+#   forget z3 near-ISOTROPIC (all eigenvalues ~1, PR ~ 16) while the retain
+#                 groups stay sharply concentrated (PR ~ 2.2 and ~ 4.3)
+#   n_shadows 100 -> 256   tighter bootstrap CIs on every AUC
+#
+# z3 is the group the model learns worst (flat spectrum = no dominant direction
+# to exploit), which is exactly what makes dropping it from training change the
+# learned read-out measurably. Run scripts/diagnose.py before sweeping and check
+# that baseline AUC(output) > 0.9.
+
+# `task` is both the regression/classification switch (anything that is not
+# "classification" is regression) AND the artifact filename stem, so this must
+# NOT be plain "regression" -- that would overwrite the D=4 ensembles and
+# results in place.
+task: regression_strong
+
+data:
+  D: 16
+  N: 32
+  basis: identity          # "random" to rotate each group into its own eigenbasis
+  seed: 0
+  groups: [z1, z2, z3]
+  forget: z3               # near-isotropic: flattest spectrum, least-learned
+  eigs:                    # trace-normalised internally; only the shape matters
+    # z1: geometric decay r=0.35 with a 0.004 floor -> PR ~ 2.2, one dominant axis
+    z1: [1.000, 0.350, 0.1225, 0.0429, 0.0150, 0.00525,
+         0.004, 0.004, 0.004, 0.004, 0.004, 0.004,
+         0.004, 0.004, 0.004, 0.004]
+    # z2: geometric decay r=0.62 with a 0.006 floor -> PR ~ 4.3, still concentrated
+    z2: [1.000, 0.620, 0.3844, 0.2383, 0.1478, 0.0916,
+         0.0568, 0.0352, 0.0218, 0.0135, 0.00840, 0.00621,
+         0.006, 0.006, 0.006, 0.006]
+    # z3: near-isotropic -> PR ~ 16.0, no direction to exploit
+    z3: [1.00, 1.00, 1.00, 0.99, 0.99, 0.99, 0.99, 0.98,
+         0.98, 0.98, 0.98, 0.97, 0.97, 0.97, 0.97, 0.96]
+
+probe:
+  P: 64                    # probe points, frozen across shadows
+  counts: {z1: 10, z2: 10, z3: 12}   # must sum to N = 32
+  seed: 777
+
+train:
+  archs: [ATTN-S, ATTN-M]
+  n_shadows: 256           # per hypothesis; the bootstrap resamples this axis
+  batch_per_shadow: 8
+  steps: 12000             # D=16 needs longer than D=4; an undertrained ensemble
+                           # is the OTHER way to get a dead baseline, and
+                           # diagnose.py cannot tell you which one you have if
+                           # you stop early. Watch the dynamics plot flatten.
+  optim: sgd               # sgd keeps the ATTN-S staircase visible; adam flattens it
+  lr: 0.005                # see README: lr/(1-momentum) is the effective rate
+  momentum: 0.9
+  grad_clip: 5.0
+  init_scale: 0.05
+  seed: 1
+
+sweep:
+  seed: 2
+  n_boot: 300              # bootstrap replicates per reported AUC
+  grids:
+    none:  [0.0]
+    C1:    [0.0, 0.001, 0.003, 0.01, 0.03, 0.1, 0.3, 1.0, 3.0, 10.0]
+    C2:    [0.0, 0.001, 0.003, 0.01, 0.03, 0.1, 0.3, 1.0, 3.0, 10.0]
+    C3:    [0.0, 0.01, 0.1, 1.0, 10.0]
+    # grid t finely near 0.5: that is the zero-mean dead zone
+    flip:  [0.0, 0.1, 0.2, 0.3, 0.4, 0.45, 0.5, 0.55, 0.6, 0.7, 0.8, 0.9, 1.0, 1.1, 1.25]
+    whiten: [0.0, 0.25, 0.5, 0.75, 1.0]
+
+paths:
+  artifacts: artifacts
+  figures: figures
