@@ -19,8 +19,8 @@ probe:
 
 train:
   archs: [ATTN-S, ATTN-M]
-  n_shadows: 100           # per hypothesis; see NOTES.md -- 100 is too few for
-                           # publishable error bars, budget 512 for final runs
+  n_shadows: 512           # per hypothesis; at 100 no confidence band separated
+                           # from chance in the first run -- see NOTES.md
   batch_per_shadow: 8
   steps: 6000
   optim: sgd               # sgd keeps the ATTN-S staircase visible; adam flattens it
