@@ -32,14 +32,21 @@ from collections import defaultdict
 import matplotlib.pyplot as plt
 import numpy as np
 import yaml
+from matplotlib.lines import Line2D
 
-MODES = ("C1", "C2", "C3")
+MODES = ("C1", "C2", "C3", "flip", "whiten")
 
-# The x-axis is a single scalar knob sigma^2 = the config `param`. It is the
-# variance of each scalar noise COMPONENT, in every family. Spelled out in the
-# titles because "Var(eps)" alone is ambiguous for C2 (eps is a D-vector) and
-# for C3 (there is no single eps -- there are two independent ones sharing
-# sigma^2). corrupt.py computes s = param**0.5 once and multiplies both draws.
+# Two kinds of x-axis. The stochastic families sweep a noise variance (log
+# scale, spanning decades); the deterministic edits sweep a strength in [0, ~1]
+# (linear). Mixing them on one axis type makes both unreadable.
+AXIS_KIND = {"C1": "var", "C2": "var", "C3": "var",
+             "flip": "strength", "whiten": "interp"}
+
+# The variance x-axis is a single scalar knob sigma^2 = the config `param`. It
+# is the variance of each scalar noise COMPONENT, in every family. Spelled out
+# in the titles because "Var(eps)" alone is ambiguous for C2 (eps is a
+# D-vector) and for C3 (there is no single eps -- there are two independent
+# ones sharing sigma^2).
 TITLES = {
     "C1": "C1  label noise\n"
           r"$y_f + \epsilon,\ \ \epsilon\sim\mathcal{N}(0,\sigma^2)$",
@@ -47,15 +54,32 @@ TITLES = {
           r"$x_f + \epsilon,\ \ \epsilon\sim\mathcal{N}(0,\sigma^2 I_D)$",
     "C3": "C3  both (independent draws, shared $\\sigma^2$)\n"
           r"$x_f + \epsilon_1,\ y_f + \epsilon_2,\ \ \epsilon_1\perp\epsilon_2$",
+    # t=1 is exact sign inversion: y_f -> -y_f, i.e. 5 becomes -5. That point
+    # IS parameter-free ICUL; the rest of the axis is a generalisation of it.
+    "flip": "ICUL / label flip\n"
+            r"$y_f \to (1-2t)\,y_f$   ($t{=}1$ is exact flip, $5\to-5$)",
+    "whiten": "whiten  input-space\n"
+              r"$x_f \to$ interpolate toward retain covariance",
 }
 
-# Components perturbed per forget token. Equal sigma^2 does NOT mean equal
-# perturbation magnitude across panels, so this travels with the figure.
+# Perturbation magnitude per forget token. Equal x does NOT mean equal
+# perturbation across panels, so this travels with the figure.
 FOOTER_ENERGY = {
     "C1": r"perturbs 1 component/token:  $\mathbb{E}\|\delta\|^2=\sigma^2$",
     "C2": r"perturbs $D$ components/token:  $\mathbb{E}\|\delta\|^2=D\sigma^2$",
     "C3": r"perturbs $D{+}1$ components/token:  "
           r"$\mathbb{E}\|\delta\|^2=(D{+}1)\sigma^2$",
+    # deterministic: delta_y = -2t y_f exactly, so the "energy" is data-scaled
+    "flip": r"deterministic, label only:  $\delta y=-2t\,y_f$,  "
+            r"$\mathbb{E}\|\delta\|^2=4t^2\,\mathbb{E}[y_f^2]$",
+    "whiten": r"deterministic, inputs only; magnitude set by the "
+              r"$\Lambda_f\!\to\!\Lambda_r$ gap",
+}
+
+# Landmarks worth a vertical line, per mode.
+VLINES = {
+    "flip": [(0.5, "r", r"$t{=}0.5$: $\tilde y_f{=}0$, zero-mean dead zone"),
+             (1.0, "g", r"$t{=}1$: ICUL (exact flip)")],
 }
 
 
@@ -68,15 +92,32 @@ def load(path):
     return rows
 
 
-def logx(ax, xs):
-    """Log axis in Var(eps) that still shows the sigma^2 = 0 control point."""
-    ax.set_xscale("symlog", linthresh=1e-3, linscale=0.35)
-    ax.set_xlim(0, max(xs) * 1.3)
-    dec = [0.0] + [10.0 ** k for k in range(-3, 3) if 10.0 ** k <= max(xs)]
-    ax.set_xticks(dec)
-    ax.set_xticklabels(["0"] + [rf"$10^{{{int(round(np.log10(d)))}}}$" for d in dec[1:]])
-    ax.set_xlabel(r"$\mathrm{Var}(\epsilon) = \sigma^2$   "
-                  r"(per noise component)", fontsize=11)
+def logx(ax, xs, mode="C1"):
+    """
+    Per-mode x-axis. `var` modes get a symlog decade axis in sigma^2 that still
+    shows the sigma^2 = 0 control point; `strength`/`interp` modes get a plain
+    linear axis, since t only ever runs over [0, ~1.25].
+    """
+    kind = AXIS_KIND.get(mode, "var")
+    if kind == "var":
+        ax.set_xscale("symlog", linthresh=1e-3, linscale=0.35)
+        ax.set_xlim(0, max(xs) * 1.3)
+        dec = [0.0] + [10.0 ** k for k in range(-3, 3) if 10.0 ** k <= max(xs)]
+        ax.set_xticks(dec)
+        ax.set_xticklabels(["0"] +
+                           [rf"$10^{{{int(round(np.log10(d)))}}}$" for d in dec[1:]])
+        ax.set_xlabel(r"$\mathrm{Var}(\epsilon) = \sigma^2$   "
+                      r"(per noise component)", fontsize=11)
+    elif kind == "strength":
+        ax.set_xlim(min(xs) - 0.03, max(xs) + 0.03)
+        ax.set_xlabel(r"flip strength $t$   ($y_f \to (1-2t)\,y_f$)", fontsize=11)
+    else:
+        ax.set_xlim(min(xs) - 0.02, max(xs) + 0.02)
+        ax.set_xlabel("interpolation toward retain covariance", fontsize=11)
+
+    for xv, col, _lab in VLINES.get(mode, []):
+        if min(xs) <= xv <= max(xs):
+            ax.axvline(xv, color=col, lw=1.0, ls="--", alpha=0.55, zorder=0)
 
 
 def collapse_theory(rows, arch, mode):
@@ -176,10 +217,16 @@ def main():
         ax.axhline(0.5, color="k", lw=1.0, ls=":", zorder=0)
         ax.text(0.985, 0.5, " chance", transform=ax.get_yaxis_transform(),
                 va="bottom", ha="right", fontsize=8, color="0.35")
-        logx(ax, xs)
+        logx(ax, xs, mode)
         ax.set_ylabel("membership AUC", fontsize=12)
         ax.set_title(TITLES[mode], fontsize=10.5)
-        ax.legend(fontsize=10, frameon=False)
+        # name the landmark lines (t=0.5 dead zone, t=1 ICUL) in the legend
+        handles, labels = ax.get_legend_handles_labels()
+        for xv, col, lab in VLINES.get(mode, []):
+            if min(xs) <= xv <= max(xs):
+                handles.append(Line2D([], [], color=col, ls="--", lw=1.0, alpha=0.7))
+                labels.append(lab)
+        ax.legend(handles, labels, fontsize=8, frameon=False)
         ax.margins(y=0.12)
         # tight_layout ignores fig.text, so reserve the bottom strip explicitly
         # or the footer lands on top of the x-label.
@@ -204,7 +251,7 @@ def main():
                 xs = [r["param"] for r in sel]
                 ax2.plot(xs, [r["eps"] for r in sel], mk, ms=4, lw=1.6,
                         color=col, label=arch)
-        logx(ax2, xs)
+        logx(ax2, xs, mode)
         ax2.set_ylabel(r"$\varepsilon$  (preservation, lower is better)", fontsize=12)
         ax2.set_title(TITLES[mode], fontsize=10.5)
         ax2.legend(fontsize=10, frameon=False)

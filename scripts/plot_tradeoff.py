@@ -35,8 +35,15 @@ import matplotlib.pyplot as plt
 import numpy as np
 import yaml
 
-MODES = ("C1", "C2", "C3")
-TITLES = {"C1": "C1  label noise", "C2": "C2  input noise", "C3": "C3  both"}
+MODES = ("C1", "C2", "C3", "flip", "whiten")
+TITLES = {"C1": "C1  label noise", "C2": "C2  input noise", "C3": "C3  both",
+          "flip": "ICUL / label flip", "whiten": "whiten"}
+AXIS_KIND = {"C1": "var", "C2": "var", "C3": "var",
+             "flip": "strength", "whiten": "interp"}
+
+# t=1 is exact sign inversion (5 -> -5): parameter-free ICUL. Reported as a
+# named operating point so it can be compared against the tuned noise families.
+ICUL_T = 1.0
 
 
 def load(path):
@@ -48,13 +55,24 @@ def load(path):
     return rows
 
 
-def logx(ax, xs):
-    ax.set_xscale("symlog", linthresh=1e-3, linscale=0.35)
-    ax.set_xlim(0, max(xs) * 1.3)
-    dec = [0.0] + [10.0 ** k for k in range(-3, 3) if 10.0 ** k <= max(xs)]
-    ax.set_xticks(dec)
-    ax.set_xticklabels(["0"] + [rf"$10^{{{int(round(np.log10(d)))}}}$" for d in dec[1:]])
-    ax.set_xlabel(r"$\mathrm{Var}(\epsilon) = \sigma^2$", fontsize=11)
+def logx(ax, xs, mode="C1"):
+    kind = AXIS_KIND.get(mode, "var")
+    if kind == "var":
+        ax.set_xscale("symlog", linthresh=1e-3, linscale=0.35)
+        ax.set_xlim(0, max(xs) * 1.3)
+        dec = [0.0] + [10.0 ** k for k in range(-3, 3) if 10.0 ** k <= max(xs)]
+        ax.set_xticks(dec)
+        ax.set_xticklabels(["0"] +
+                           [rf"$10^{{{int(round(np.log10(d)))}}}$" for d in dec[1:]])
+        ax.set_xlabel(r"$\mathrm{Var}(\epsilon) = \sigma^2$", fontsize=11)
+    elif kind == "strength":
+        ax.set_xlim(min(xs) - 0.03, max(xs) + 0.03)
+        ax.set_xlabel(r"flip strength $t$   ($t{=}1$ is ICUL)", fontsize=11)
+        if min(xs) <= ICUL_T <= max(xs):
+            ax.axvline(ICUL_T, color="g", lw=1.1, ls="--", alpha=0.6, zorder=0)
+    else:
+        ax.set_xlim(min(xs) - 0.02, max(xs) + 0.02)
+        ax.set_xlabel("interpolation toward retain covariance", fontsize=11)
 
 
 def agg(rows, arch, mode, field):
@@ -122,7 +140,7 @@ def main():
 
         ax.axhline(0.5, color="k", lw=0.9, ls=":", zorder=0)
         ax2.set_yscale("log")
-        logx(ax, xs)
+        logx(ax, xs, mode)
         ax.set_ylabel("membership AUC  (solid)", fontsize=11)
         ax2.set_ylabel(r"$\varepsilon$ preservation, log scale  (dashed)", fontsize=11)
         ax.set_title(f"{TITLES[mode]} — removal vs preservation", fontsize=11)
@@ -164,8 +182,52 @@ def main():
     print("\n'eps ratio' = how much preservation you pay to reach chance-level AUC.")
     print("Ratio ~1 means a clean operating point exists. Ratio >> 1 means this")
     print("corruption family cannot defeat the attacker without wrecking the model,")
-    print("which is the headline result if it holds.\n")
-    print(f"written to {fdir}/")
+    print("which is the headline result if it holds.")
+
+    # ---------------------------------------------------- ICUL head-to-head
+    # Parameter-free ICUL is the single point t=1 on the flip arm. The noise
+    # families get to TUNE sigma^2; ICUL does not get to tune anything. So the
+    # fair comparison is ICUL against each family's best achievable point, and
+    # the honest question is whether tuning buys you anything over just
+    # flipping the sign.
+    if any(r["mode"] == "flip" for r in rows):
+        print("\n" + "=" * 100)
+        print("ICUL (t=1, exact sign flip) vs the tunable noise families")
+        print("=" * 100)
+        print(f"{'arch':8s} {'method':22s} {'AUC':>9s} {'|AUC-0.5|':>10s} "
+              f"{'eps':>10s}   {'verdict':s}")
+        print("-" * 100)
+        for arch in archs:
+            xs_f, auc_f = agg(rows, arch, "flip", f"auc_matched_{obs}")
+            _, eps_f = agg(rows, arch, "flip", "eps")
+            xs_f = np.array(xs_f)
+            j = int(np.argmin(np.abs(xs_f - ICUL_T)))
+            icul_dev, icul_eps = abs(auc_f[j] - 0.5), eps_f[j]
+            print(f"{arch:8s} {'ICUL (t=1)':22s} {auc_f[j]:9.4f} "
+                  f"{icul_dev:10.4f} {icul_eps:10.5f}   (no tuning)")
+
+            for mode in ("C1", "C2", "C3"):
+                if not any(r["mode"] == mode for r in rows):
+                    continue
+                xs_c, auc_c = agg(rows, arch, mode, f"auc_matched_{obs}")
+                _, eps_c = agg(rows, arch, mode, "eps")
+                # best point = closest to chance among those no worse than
+                # ICUL on preservation; falls back to closest-to-chance overall
+                ok = np.where(np.array(eps_c) <= max(icul_eps, 1e-12))[0]
+                pool = ok if len(ok) else np.arange(len(auc_c))
+                k = pool[int(np.argmin(np.abs(np.array(auc_c)[pool] - 0.5)))]
+                dev = abs(auc_c[k] - 0.5)
+                better = "beats ICUL" if dev < icul_dev else "worse than ICUL"
+                note = "" if len(ok) else "  (no point matches ICUL's eps)"
+                print(f"{'':8s} {mode + f' best @ s2={xs_c[k]:g}':22s} "
+                      f"{auc_c[k]:9.4f} {dev:10.4f} {eps_c[k]:10.5f}   "
+                      f"{better}{note}")
+            print()
+        print("If no tuned noise setting beats ICUL at equal-or-better eps, then")
+        print("the parameter-free sign flip is the strongest edit in this family,")
+        print("and the sigma^2 sweeps are a (useful) negative result.")
+
+    print(f"\nwritten to {fdir}/")
 
 
 if __name__ == "__main__":
