@@ -57,7 +57,8 @@ def main():
     rows = run_sweep(spec, probe, ensembles, cfg["sweep"]["grids"],
                      seed=cfg["sweep"]["seed"], device=dev, retain_x=retain_x,
                      n_boot=cfg["sweep"].get("n_boot", 200),
-                     n_shared_reps=cfg["sweep"].get("n_shared_reps", 16))
+                     n_shared_reps=cfg["sweep"].get("n_shared_reps", 16),
+                     mmd_max_n=cfg["sweep"].get("mmd_max_n", 2000))
 
     path = adir / f"results_{name}.csv"
     with open(path, "w", newline="") as f:

@@ -36,6 +36,10 @@ sweep:
   n_shared_reps: 16        # independent shared-noise draws for the masking
                            # control; a single draw gives an unreadably jagged
                            # curve because all shadows then see one realisation
+  mmd_max_n: 2000          # subsample cap for mmd2's pairwise distance matrix;
+                           # at n_shadows=512 the un-capped population (32768
+                           # points/side) needs 32 GiB for the full O(n^2)
+                           # matrix and will OOM on most GPUs
   grids:
     none:  [0.0]
     # log-dense in sigma^2: the AUC-vs-variance curve is the headline figure,

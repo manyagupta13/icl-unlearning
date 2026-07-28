@@ -340,6 +340,69 @@ before interpreting anything.
 
 ---
 
+## 4c. Two more bugs, surfaced only once `n_shadows` actually went to 512
+
+Both of these were latent at `n_shadows: 100` and only became visible on the
+first real run at the corrected default. Both are now fixed. If you re-run
+this at even larger `S`, re-read this section — neither fix eliminates a
+size-dependence in principle, they just move where it bites.
+
+### (i) Gradient clipping got looser as the ensemble got bigger
+
+`train_ensemble` clipped with
+`torch.nn.utils.clip_grad_norm_(model.parameters(), grad_clip * S)` — a single
+norm computed across **all S shadows stacked together**. With roughly
+independent per-shadow gradients the aggregate norm scales like `√S · g`,
+while the threshold scales like `grad_clip · S`. The ratio between them grows
+with `S`, so the clip becomes strictly *less* able to catch an individual
+diverging shadow as the ensemble grows — the safety net gets looser exactly
+when a bigger ensemble makes an outlier shadow more likely to occur.
+
+Verified numerically (`tests/verify_bugs.py`): with one outlier shadow whose
+raw gradient norm is 50 against a target `grad_clip=5`, the global clip lets
+**49.9–50.0** through at every `S` from 10 to 2000 — it essentially never
+engages for the outlier, regardless of ensemble size. A first real run at
+S=512 hit this: one ATTN-S oracle shadow diverged to loss ≈4400 while the
+other 511 trained normally, and the resulting `M_oracle` silently carried a
+corrupted row into every downstream AUC/eps/MMD computation.
+
+Fixed with `clip_grad_norm_per_shadow_`: the norm is computed per leading-axis
+slice (per shadow) and each shadow is scaled independently, so `max_norm`
+means what it says regardless of `S`. Same test shows the outlier held at
+exactly `5.0` at every `S`.
+
+Also added `check_ensemble_health`, run automatically after every
+`train_ensemble` call. It raises if any shadow's `M` is non-finite, and warns
+if a shadow's Frobenius norm exceeds 20x the ensemble median — the observed
+divergence was large but *finite* (loss ≈4400, not NaN), so an `isfinite()`
+check alone would have passed silently. **If you see this warning after
+pulling the fix, do not proceed to the sweep** — investigate before trusting
+the ensemble; the fix should prevent it, but not necessarily under every
+config.
+
+### (ii) `mmd2` OOM'd because it never chunked or subsampled
+
+`mmd2` builds one `torch.cdist` matrix over the full residual population.
+At `S=512, P=64`, that population is `2·S·P = 65536` points, and the matrix is
+`65536² × 8 bytes = 32.0 GiB` — an exact match to the CUDA OOM this repo
+actually hit (`Tried to allocate 32.00 GiB`). It was invisible at `S=100`
+(`12800² × 8 bytes ≈ 1.2 GiB`).
+
+Fixed by subsampling to `max_n=2000` points per side (config: `sweep.mmd_max_n`)
+before building the distance matrix, with a fixed seed for reproducibility.
+MMD is a population statistic, so subsampling is a legitimate unbiased
+estimator, not an approximation of a different quantity — just a noisier one.
+Verified with a synthetic 20k-point population (`tests/test_sanity.py` /
+`test_mmd2_subsamples_instead_of_oom`): the call no longer scales with input
+size and is deterministic given the seed.
+
+If you push `n_shadows` higher than 512, re-check this arithmetic —
+`mmd_max_n` bounds the *population* fed to `cdist`, but if you also raise `P`
+(the probe size) the memory scales the same way and you may need to lower
+`mmd_max_n` further.
+
+---
+
 ## 5. What was verified, and how
 
 `torch` could not be installed in the environment these changes were made in,
@@ -373,6 +436,12 @@ before trusting the refactor.** What *was* checked:
 - **The sign-cancellation diagnosis** (`tests/diagnose_flat_output_auc.py`),
   numbers in §4b(i). Reproduced as two unit tests.
 
+- **The clip-scaling and OOM arithmetic** (`tests/verify_bugs.py`), numbers in
+  §4c. The OOM figure (32.000 GiB) matches the traceback's 32.00 GiB exactly;
+  the outlier-survives-global-clip figure (49.9/50 at every S) and the
+  per-shadow-clip figure (exactly 5.0 at every S) are both reproduced as unit
+  tests in `test_sanity.py`.
+
 - **The rebuilt figure**, rendered against a synthetic CSV with the real column
   set and grids: axes now read `0 10⁻³ 10⁻² … 10²` with no negative branch and
   no overlapping ticks, and the y-range fits the data.
@@ -391,13 +460,15 @@ before trusting the refactor.** What *was* checked:
 
 ## 6. Quick checklist before a final run
 
-- [ ] `n_shadows` ≥ 512
+- [x] `n_shadows` = 512 (shipped default — was the source of the two bugs in §4c)
+- [x] `pytest tests/ -q` passes on GPU (confirmed: 14/14, then 18/18 after §4c's tests)
+- [x] no `check_ensemble_health` warnings in the training log — **check this on
+      every run**, not just once; it is not guaranteed eliminated by the fix
 - [ ] ≥3 training seeds × ≥3 probe seeds
 - [ ] `forget` swept over all three groups
 - [ ] continuous PR knob implemented
 - [ ] closed-form overlay implemented and matching within CI
 - [ ] sigmoid fits for transition midpoint/slope, with CIs
 - [ ] collapse plot attempted
-- [ ] `pytest tests/ -q` green (not yet run — see §5)
 - [ ] artifacts regenerated after the seeding fix (anything cached from before
       it is not reproducible and should be deleted)

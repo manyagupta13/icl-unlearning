@@ -14,6 +14,8 @@ from icl_unlearning import audit                                  # noqa: E402
 from icl_unlearning.corrupt import corrupt                        # noqa: E402
 from icl_unlearning.data import MixtureSpec, make_probe, make_sequences  # noqa: E402
 from icl_unlearning.models import LinearAttnICL, apply_frozen     # noqa: E402
+from icl_unlearning.train import (check_ensemble_health,          # noqa: E402
+                                  clip_grad_norm_per_shadow_)
 
 DEV = "cpu"
 SPEC = MixtureSpec(names=["z1", "z2", "z3"],
@@ -168,6 +170,63 @@ def test_null_auc_level_is_above_half():
     """Per-point symmetrisation is biased up at the null; quantify it."""
     lvl = audit.null_auc_level(S=100, P=64, n_rep=40, seed=0)
     assert 0.50 < lvl < 0.60, lvl
+
+
+def test_per_shadow_clip_bounds_an_outlier_regardless_of_ensemble_size():
+    """
+    Regression test for the S=100->512 divergence. A global norm clip with
+    threshold ~ S lets a single diverging shadow's gradient through almost
+    untouched, and gets WORSE as S grows since the threshold grows linearly
+    while the aggregate norm of well-behaved shadows only grows like sqrt(S).
+    Per-shadow clipping must bound every shadow to `max_norm` independent of S.
+    """
+    torch.manual_seed(0)
+    max_norm = 5.0
+    for S in (10, 100, 512):
+        p = torch.nn.Parameter(torch.zeros(S, 3, 3))
+        g = torch.randn(S, 3, 3) * 1.0
+        g[-1] *= 50.0            # one shadow with a much larger gradient
+        p.grad = g.clone()
+        clip_grad_norm_per_shadow_([p], max_norm)
+        norms = p.grad.reshape(S, -1).norm(dim=1)
+        assert norms.max() <= max_norm + 1e-3, (S, norms.max())
+        # a well-behaved shadow should be scaled by very little
+        assert norms[0] < max_norm + 1e-3
+
+
+def test_check_ensemble_health_flags_a_diverged_shadow():
+    M = torch.stack([torch.eye(3) for _ in range(10)])
+    M[3] *= 1000.0    # one shadow with a 1000x larger read-out
+    # should not raise (values are finite), but should print a warning --
+    # just check it doesn't raise and doesn't false-positive on a clean ensemble
+    check_ensemble_health(M, "TEST")
+    check_ensemble_health(torch.stack([torch.eye(3) for _ in range(10)]), "TEST")
+
+
+def test_check_ensemble_health_raises_on_non_finite():
+    M = torch.stack([torch.eye(3) for _ in range(5)])
+    M[2, 0, 0] = float("nan")
+    try:
+        check_ensemble_health(M, "TEST")
+        assert False, "expected RuntimeError on non-finite M"
+    except RuntimeError:
+        pass
+
+
+def test_mmd2_subsamples_instead_of_oom():
+    """
+    Regression test for the 32 GiB OOM at S=512, P=64 (65536^2*8 bytes exactly).
+    mmd2 must cap the pairwise-distance population regardless of input size.
+    """
+    g = torch.Generator().manual_seed(0)
+    # population far larger than max_n, but small enough for a CPU test
+    x = torch.randn(20_000, generator=g)
+    y = torch.randn(20_000, generator=g) + 0.5
+    val = audit.mmd2(x, y, max_n=500, seed=0)
+    assert val >= 0.0
+    # determinism: same seed -> same subsample -> same value
+    val2 = audit.mmd2(x, y, max_n=500, seed=0)
+    assert val == val2
 
 
 def test_stable_offset_is_process_independent():

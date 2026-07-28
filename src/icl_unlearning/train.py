@@ -12,7 +12,8 @@ staircase to be visible in ATTN-S. Adam flattens it.
 
 Stability note: ATTN-S is a product parameterisation, so momentum bites twice.
 Effective LR is lr/(1-beta); lr=0.05 with beta=0.9 diverges to NaN within a few
-hundred steps. lr~0.005 with grad clipping is the safe default.
+hundred steps. lr~0.005 with grad clipping is the safe default -- PROVIDED the
+clipping is per-shadow. See `clip_grad_norm_per_shadow_`.
 """
 from __future__ import annotations
 
@@ -22,6 +23,39 @@ import torch
 
 from .data import MixtureSpec, make_sequences
 from .models import LinearAttnICL
+
+
+def clip_grad_norm_per_shadow_(params, max_norm: float) -> torch.Tensor:
+    """
+    Clip each shadow's gradient independently, to `max_norm`.
+
+    `torch.nn.utils.clip_grad_norm_` computes ONE norm across every parameter
+    it is given -- here, that means across all S shadows stacked together.
+    With S roughly-independent shadows the aggregate norm scales like sqrt(S)
+    while a `grad_clip * S` threshold scales like S, so the ratio between
+    threshold and aggregate norm GROWS with S: the clip gets looser precisely
+    as the ensemble gets bigger. A single diverging shadow barely moves an
+    aggregate norm computed over hundreds of others, so it sails through
+    un-clipped. Confirmed empirically: at S=512 one ATTN-S oracle shadow blew
+    up to loss ~4400 while training was otherwise stable.
+
+    This clips per shadow instead: every parameter tensor is [S, ...], so the
+    norm is computed per leading-axis slice and each shadow is scaled by its
+    own factor. `max_norm` then means what the README says it means,
+    independent of ensemble size.
+    """
+    grads = [p.grad for p in params if p.grad is not None]
+    if not grads:
+        return torch.tensor(0.0)
+    S = grads[0].shape[0]
+    sq = torch.zeros(S, device=grads[0].device, dtype=torch.float64)
+    for g in grads:
+        sq += g.reshape(S, -1).double().pow(2).sum(dim=1)
+    norms = sq.sqrt()
+    scale = (max_norm / (norms + 1e-6)).clamp(max=1.0).to(grads[0].dtype)
+    for g in grads:
+        g.mul_(scale.reshape([S] + [1] * (g.dim() - 1)))
+    return norms.to(grads[0].dtype)
 
 
 def train_ensemble(spec: MixtureSpec, groups: list[str], arch: str,
@@ -60,7 +94,7 @@ def train_ensemble(spec: MixtureSpec, groups: list[str], arch: str,
         opt.zero_grad(set_to_none=True)
         loss.backward()
         if grad_clip:
-            torch.nn.utils.clip_grad_norm_(model.parameters(), grad_clip * S)
+            clip_grad_norm_per_shadow_(model.parameters(), grad_clip)
         opt.step()
 
         if t % trace_every == 0:
@@ -74,7 +108,40 @@ def train_ensemble(spec: MixtureSpec, groups: list[str], arch: str,
 
     print(f"    [{arch}] done in {time.time()-t0:.0f}s  "
           f"final {sum(trace[-20:])/max(1,len(trace[-20:])):.4f}", flush=True)
+    check_ensemble_health(M, arch)
     return M, torch.tensor(trace)
+
+
+def check_ensemble_health(M: torch.Tensor, arch: str, ratio_thresh: float = 20.0):
+    """
+    Flag shadows whose read-out matrix diverged. Per-shadow clipping should
+    prevent this, but this is the check that would have caught the previous
+    failure immediately (loss ~4400 on one shadow, silently corrupting the
+    oracle's AUC and MMD downstream) instead of surfacing three steps later as
+    an out-of-memory error with no obvious connection to training.
+
+    Flags on Frobenius-norm outliers, not just non-finite values: the observed
+    divergence was large but finite, so an isfinite() check alone would have
+    missed it.
+    """
+    if not torch.isfinite(M).all():
+        bad = (~torch.isfinite(M).reshape(M.shape[0], -1).all(dim=1)).nonzero().flatten()
+        raise RuntimeError(
+            f"[{arch}] {len(bad)}/{M.shape[0]} shadow(s) have non-finite M "
+            f"(indices {bad.tolist()[:10]}...). Training diverged. If this "
+            f"recurs after the per-shadow grad-clip fix, lower lr further.")
+
+    norms = torch.linalg.norm(M.reshape(M.shape[0], -1), dim=1)
+    med = norms.median()
+    ratio = (norms / med.clamp_min(1e-12))
+    bad = (ratio > ratio_thresh).nonzero().flatten()
+    if len(bad):
+        print(f"    [{arch}] WARNING: {len(bad)}/{M.shape[0]} shadow(s) have "
+              f"||M|| > {ratio_thresh}x the ensemble median (median={med:.3g}, "
+              f"max={norms.max():.3g}). These shadows likely diverged during "
+              f"training and will distort spread-based diagnostics and any "
+              f"metric computed over the raw population (e.g. mmd2). "
+              f"Indices: {bad.tolist()[:20]}", flush=True)
 
 
 @torch.no_grad()

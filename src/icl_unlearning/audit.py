@@ -245,14 +245,28 @@ def alpha_eps(p1, p2, p):
             "eps_min": eps_min, "gap": eps - eps_min}
 
 
-def mmd2(x: torch.Tensor, y: torch.Tensor, bandwidth: float | None = None) -> float:
+def mmd2(x: torch.Tensor, y: torch.Tensor, bandwidth: float | None = None,
+        max_n: int = 2000, seed: int = 0) -> float:
     """
     Unbiased MMD^2 with an RBF kernel and median-heuristic bandwidth.
     x, y are 1-D samples of the observable. Transfers to non-Gaussian settings
     where the closed-form KL is unusable.
+
+    Subsamples to at most `max_n` points per side before building the pairwise
+    distance matrix. cdist materialises a dense (n_x+n_y) x (n_x+n_y) matrix,
+    which is O(S^2 * P^2): at S=512, P=64 that is 65536^2 * 8 bytes = 32 GiB,
+    an exact reproduction of a CUDA OOM observed in practice. MMD is a
+    population statistic, so subsampling is a legitimate (if slightly noisier)
+    unbiased estimator, not an approximation of a different quantity. The
+    subsample is deterministic given `seed` so results reproduce across runs.
     """
     x = x.reshape(-1, 1).double()
     y = y.reshape(-1, 1).double()
+    g = torch.Generator(device=x.device).manual_seed(seed)
+    if x.shape[0] > max_n:
+        x = x[torch.randperm(x.shape[0], generator=g, device=x.device)[:max_n]]
+    if y.shape[0] > max_n:
+        y = y[torch.randperm(y.shape[0], generator=g, device=y.device)[:max_n]]
     if bandwidth is None:
         z = torch.cat([x, y])
         d = torch.cdist(z, z)

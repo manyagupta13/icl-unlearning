@@ -37,7 +37,8 @@ from .models import apply_frozen
 def sweep_point(spec: MixtureSpec, probe: Probe, M_full: torch.Tensor,
                 M_oracle: torch.Tensor, mode: str, param: float,
                 gen: torch.Generator, retain_x=None, n_boot: int = 200,
-                boot_seed: int = 0, n_shared_reps: int = 16) -> dict:
+                boot_seed: int = 0, n_shared_reps: int = 16,
+                mmd_max_n: int = 2000) -> dict:
     """One grid point. Returns a flat record ready for a dataframe row."""
     S = M_full.shape[0]
 
@@ -116,14 +117,16 @@ def sweep_point(spec: MixtureSpec, probe: Probe, M_full: torch.Tensor,
     p1 = audit.fit_residual_law(apply_frozen(M_full, X_c, yl_c, spec.N), yq_c)
     rec.update(audit.alpha_eps(p1, p2, p))
     rec["mmd2_to_oracle"] = audit.mmd2((yhat1 - yq1).reshape(-1),
-                                       (yhat0 - yq0).reshape(-1))
+                                       (yhat0 - yq0).reshape(-1),
+                                       max_n=mmd_max_n, seed=boot_seed)
     return rec
 
 
 @torch.no_grad()
 def run_sweep(spec: MixtureSpec, probe: Probe, ensembles: dict, grids: dict,
               seed: int = 0, device="cuda", retain_x=None,
-              n_boot: int = 200, n_shared_reps: int = 16) -> list[dict]:
+              n_boot: int = 200, n_shared_reps: int = 16,
+              mmd_max_n: int = 2000) -> list[dict]:
     """
     ensembles: {(arch, hyp): M}
     grids:     {mode: [param, ...]}
@@ -140,7 +143,8 @@ def run_sweep(spec: MixtureSpec, probe: Probe, ensembles: dict, grids: dict,
                 rec = sweep_point(spec, probe, M_full, M_oracle, mode, prm,
                                   gen, retain_x=retain_x, n_boot=n_boot,
                                   boot_seed=seed + 1000 * k,
-                                  n_shared_reps=n_shared_reps)
+                                  n_shared_reps=n_shared_reps,
+                                  mmd_max_n=mmd_max_n)
                 rec["arch"] = arch
                 rows.append(rec)
                 print(f"  {arch:7s} {mode:7s} p={prm:<8.4g} "
