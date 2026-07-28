@@ -49,6 +49,24 @@ def main():
     fdir.mkdir(parents=True, exist_ok=True)
 
     rows = load(adir / f"results_{name}.csv")
+
+    # If run_auc_sweep.py was run across multiple (train_seed, probe_seed)
+    # combinations, this diagnostic grid is not seed-aware (unlike
+    # plot_auc_vs_var.py) and would plot several overlapping values per x,
+    # producing a zigzag. Restrict to the first combo and say so; use
+    # plot_auc_vs_var.py for the cross-seed view.
+    if "train_seed_idx" in (rows[0] if rows else {}):
+        ts0 = min(r["train_seed_idx"] for r in rows)
+        ps0 = min(r["probe_seed_idx"] for r in rows)
+        n_before = len(rows)
+        rows = [r for r in rows
+               if r["train_seed_idx"] == ts0 and r["probe_seed_idx"] == ps0]
+        if n_before != len(rows):
+            print(f"note: results contain multiple seed combinations; "
+                 f"this diagnostic grid shows only train_seed_idx={ts0:.0f}, "
+                 f"probe_seed_idx={ps0:.0f} ({len(rows)}/{n_before} rows). "
+                 f"Use plot_auc_vs_var.py for the cross-seed aggregate.")
+
     archs = sorted({r["arch"] for r in rows})
     modes = [m for m in ("C1", "C2", "C3", "flip", "whiten")
              if any(r["mode"] == m for r in rows)]
@@ -185,7 +203,8 @@ def main():
     fig2.savefig(fdir / f"frontier_{name}.pdf", bbox_inches="tight")
 
     # ---------------------------------------------------------- staircases
-    blob = torch.load(adir / f"ensembles_{name}.pt", map_location="cpu",
+    # Illustrative only -- shows training-seed index 0, not an aggregate.
+    blob = torch.load(adir / f"ensembles_{name}_ts0.pt", map_location="cpu",
                       weights_only=False)
     fig3, ax3 = plt.subplots(figsize=(5, 3.4))
     for arch in archs:

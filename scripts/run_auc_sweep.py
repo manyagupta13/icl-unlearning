@@ -4,10 +4,15 @@ Run the corruption sweep against cached ensembles.
 
     python scripts/run_auc_sweep.py --config configs/regression.yaml
 
-Loads artifacts/ensembles_{name}.pt, sweeps every (arch, mode, strength) in the
-config grid, and writes artifacts/results_{name}.csv.
+Loops over every (training-seed, probe-seed) combination:
+    train.n_train_seeds  x  probe.n_probe_seeds
+loading artifacts/ensembles_{name}_ts{ts}.pt for each training seed and
+rebuilding the probe for each probe seed. Every row in the output CSV is
+tagged with `train_seed_idx` and `probe_seed_idx` so plot_auc_vs_var.py can
+show the across-seed spread rather than just the within-run bootstrap CI.
 
-No training happens here. Re-run freely with new grids.
+Writes artifacts/results_{name}.csv. No training happens here -- re-run freely
+with new grids.
 """
 import argparse
 import csv
@@ -30,42 +35,57 @@ def main():
     args = ap.parse_args()
 
     cfg = yaml.safe_load(open(args.config))
-    name, d, pr = cfg["name"], cfg["data"], cfg["probe"]
+    name, d, pr, tr, sw = (cfg["name"], cfg["data"], cfg["probe"],
+                           cfg["train"], cfg["sweep"])
     dev = args.device
-
-    adir = pathlib.Path(cfg["paths"]["artifacts"])
-    blob = torch.load(adir / f"ensembles_{name}.pt", map_location=dev,
-                      weights_only=False)
+    n_train_seeds = int(tr.get("n_train_seeds", 1))
+    n_probe_seeds = int(pr.get("n_probe_seeds", 1))
+    print(f"n_train_seeds={n_train_seeds}  n_probe_seeds={n_probe_seeds}  "
+         f"-> {n_train_seeds * n_probe_seeds} combinations")
 
     spec = MixtureSpec(names=d["groups"], eigs=d["eigs"], D=d["D"], N=d["N"],
                        basis=d["basis"], seed=d["seed"])
-
-    gen = torch.Generator(device=dev).manual_seed(pr["seed"])
-    probe = make_probe(spec, pr["counts"], d["forget"], pr["P"], gen, dev)
-
-    # empirical retain-group inputs for the whiten arm (never the true Lambda)
     retain = [g for g in d["groups"] if g != d["forget"]]
-    retain_x = torch.cat([
-        torch.randn(2048, spec.D, generator=gen, device=dev)
-        @ spec.sqrt_cov(g, dev, torch.float32).T for g in retain])
+    adir = pathlib.Path(cfg["paths"]["artifacts"])
 
-    ensembles = {}
-    for arch in cfg["train"]["archs"]:
-        for hyp in ("full", "oracle"):
-            ensembles[(arch, hyp)] = blob[f"{arch}|{hyp}|M"].to(dev)
+    all_rows = []
+    for ts in range(n_train_seeds):
+        blob = torch.load(adir / f"ensembles_{name}_ts{ts}.pt", map_location=dev,
+                          weights_only=False)
+        ensembles = {}
+        for arch in tr["archs"]:
+            for hyp in ("full", "oracle"):
+                ensembles[(arch, hyp)] = blob[f"{arch}|{hyp}|M"].to(dev)
 
-    rows = run_sweep(spec, probe, ensembles, cfg["sweep"]["grids"],
-                     seed=cfg["sweep"]["seed"], device=dev, retain_x=retain_x,
-                     n_boot=cfg["sweep"].get("n_boot", 200),
-                     n_shared_reps=cfg["sweep"].get("n_shared_reps", 16),
-                     mmd_max_n=cfg["sweep"].get("mmd_max_n", 2000))
+        for ps in range(n_probe_seeds):
+            probe_seed = pr["seed"] + ps
+            print(f"  [ts={ts} ps={ps}] train_seed={blob.get('train_seed')} "
+                 f"probe_seed={probe_seed}")
+            gen = torch.Generator(device=dev).manual_seed(probe_seed)
+            probe = make_probe(spec, pr["counts"], d["forget"], pr["P"], gen, dev)
+
+            # empirical retain-group inputs for the whiten arm (never the true Lambda)
+            retain_x = torch.cat([
+                torch.randn(2048, spec.D, generator=gen, device=dev)
+                @ spec.sqrt_cov(g, dev, torch.float32).T for g in retain])
+
+            rows = run_sweep(spec, probe, ensembles, sw["grids"],
+                             seed=sw["seed"] + 1_000_000 * ts + 1_000 * ps,
+                             device=dev, retain_x=retain_x,
+                             n_boot=sw.get("n_boot", 200),
+                             n_shared_reps=sw.get("n_shared_reps", 16),
+                             mmd_max_n=sw.get("mmd_max_n", 2000))
+            for r in rows:
+                r["train_seed_idx"] = ts
+                r["probe_seed_idx"] = ps
+            all_rows.extend(rows)
 
     path = adir / f"results_{name}.csv"
     with open(path, "w", newline="") as f:
-        w = csv.DictWriter(f, fieldnames=list(rows[0].keys()))
+        w = csv.DictWriter(f, fieldnames=list(all_rows[0].keys()))
         w.writeheader()
-        w.writerows(rows)
-    print(f"\n{len(rows)} rows -> {path}")
+        w.writerows(all_rows)
+    print(f"\n{len(all_rows)} rows -> {path}")
 
 
 if __name__ == "__main__":

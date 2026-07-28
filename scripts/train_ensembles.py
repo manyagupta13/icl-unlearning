@@ -4,12 +4,22 @@ Train every shadow ensemble for one config and cache them.
 
     python scripts/train_ensembles.py --config configs/regression.yaml
 
-Produces artifacts/ensembles_{name}.pt containing, for each architecture:
+Loops over `train.n_train_seeds` independent training seeds (default 1) so
+run_auc_sweep.py can check whether the AUC-vs-Var(eps) curve is a property of
+the setup or an artefact of one training run. Per NOTES.md section 2: the
+within-run bootstrap CI covers shadow/probe sampling noise but says nothing
+about training-seed variation in the ensemble mean, and referees will ask.
+
+Produces, for each training-seed index ts in range(n_train_seeds):
+    artifacts/ensembles_{name}_ts{ts}.pt
+containing, for each architecture:
     ("ATTN-S", "full")    trained on all groups
     ("ATTN-S", "oracle")  retrained on retain groups only
     ...
 
-This is the only expensive step. The sweep reuses these.
+Training is cheap here (~15s per ensemble on a T4/P100 at S=512), so 3+ train
+seeds costs a few minutes, not hours. This is the only expensive step; the
+sweep reuses these.
 """
 import argparse
 import hashlib
@@ -46,7 +56,8 @@ def main():
     cfg = yaml.safe_load(open(args.config))
     name, d, tr = cfg["name"], cfg["data"], cfg["train"]
     dev = args.device
-    print(f"device={dev}  config={name}")
+    n_train_seeds = int(tr.get("n_train_seeds", 1))
+    print(f"device={dev}  config={name}  n_train_seeds={n_train_seeds}")
 
     spec = MixtureSpec(names=d["groups"], eigs=d["eigs"], D=d["D"], N=d["N"],
                        basis=d["basis"], seed=d["seed"])
@@ -54,33 +65,37 @@ def main():
         print(f"  {g}: PR = {spec.pr(g):.2f}")
 
     retain = [g for g in d["groups"] if g != d["forget"]]
-    out = {}
-    for arch in tr["archs"]:
-        for hyp, groups in [("full", d["groups"]), ("oracle", retain)]:
-            print(f"[{arch} | {hyp}] groups={groups}")
-            M, trace = train_ensemble(
-                spec, groups, arch,
-                S=tr["n_shadows"], batch_per_shadow=tr["batch_per_shadow"],
-                steps=tr["steps"], lr=tr["lr"], momentum=tr["momentum"],
-                optim=tr["optim"], grad_clip=tr["grad_clip"],
-                init_scale=tr["init_scale"],
-                seed=tr["seed"] + stable_offset(arch, hyp),
-                device=dev)
-            out[f"{arch}|{hyp}|M"] = M.cpu()
-            out[f"{arch}|{hyp}|trace"] = trace.cpu()
-
-        # sanity: per-group MSE should track participation ratio
-        gen = torch.Generator(device=dev).manual_seed(999)
-        mse = per_group_mse(spec, out[f"{arch}|full|M"].to(dev), arch,
-                            tr["n_shadows"], gen, dev)
-        print(f"  per-group MSE: " + "  ".join(f"{g}={v:.4f}" for g, v in mse.items()))
-        out[f"{arch}|per_group_mse"] = torch.tensor([mse[g] for g in spec.names])
-
     adir = pathlib.Path(cfg["paths"]["artifacts"])
     adir.mkdir(parents=True, exist_ok=True)
-    path = adir / f"ensembles_{name}.pt"
-    torch.save({"cfg": cfg, **out}, path)
-    print(f"saved -> {path}")
+
+    for ts in range(n_train_seeds):
+        train_seed = tr["seed"] + ts
+        print(f"\n=== training-seed index {ts} (seed={train_seed}) ===")
+        out = {}
+        for arch in tr["archs"]:
+            for hyp, groups in [("full", d["groups"]), ("oracle", retain)]:
+                print(f"[{arch} | {hyp}] groups={groups}")
+                M, trace = train_ensemble(
+                    spec, groups, arch,
+                    S=tr["n_shadows"], batch_per_shadow=tr["batch_per_shadow"],
+                    steps=tr["steps"], lr=tr["lr"], momentum=tr["momentum"],
+                    optim=tr["optim"], grad_clip=tr["grad_clip"],
+                    init_scale=tr["init_scale"],
+                    seed=train_seed + stable_offset(arch, hyp),
+                    device=dev)
+                out[f"{arch}|{hyp}|M"] = M.cpu()
+                out[f"{arch}|{hyp}|trace"] = trace.cpu()
+
+            # sanity: per-group MSE should track participation ratio
+            gen = torch.Generator(device=dev).manual_seed(999)
+            mse = per_group_mse(spec, out[f"{arch}|full|M"].to(dev), arch,
+                                tr["n_shadows"], gen, dev)
+            print(f"  per-group MSE: " + "  ".join(f"{g}={v:.4f}" for g, v in mse.items()))
+            out[f"{arch}|per_group_mse"] = torch.tensor([mse[g] for g in spec.names])
+
+        path = adir / f"ensembles_{name}_ts{ts}.pt"
+        torch.save({"cfg": cfg, "train_seed": train_seed, **out}, path)
+        print(f"saved -> {path}")
 
 
 if __name__ == "__main__":

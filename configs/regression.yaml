@@ -16,6 +16,10 @@ probe:
   P: 64                    # probe points, frozen across shadows
   counts: {z1: 10, z2: 10, z3: 11}
   seed: 777
+  n_probe_seeds: 3         # run_auc_sweep.py rebuilds the probe with seeds
+                           # 777, 778, 779 and reports the spread across them,
+                           # not just the within-run bootstrap CI -- see
+                           # NOTES.md section 2
 
 train:
   archs: [ATTN-S, ATTN-M]
@@ -29,6 +33,9 @@ train:
   grad_clip: 5.0
   init_scale: 0.05
   seed: 1
+  n_train_seeds: 3         # train_ensembles.py trains 3 independent ensembles
+                           # (seeds 1, 2, 3) -- training is ~15s/ensemble at
+                           # S=512 on a T4/P100, so this costs minutes, not hours
 
 sweep:
   seed: 2

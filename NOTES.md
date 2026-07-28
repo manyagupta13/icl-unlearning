@@ -403,6 +403,81 @@ If you push `n_shadows` higher than 512, re-check this arithmetic —
 
 ---
 
+## 4d. AUC < 0.5: expected, and what it means
+
+The first real (post-fix) sweep showed AUC sitting *below* 0.5 at zero
+corruption and rising toward 0.5 as `Var(ε)` grows, for both architectures.
+This is correct and worth understanding rather than "fixing."
+
+`membership_auc(H1, H0)` is directional: H1 (the fully-trained model) is
+ranked against H0 (the retrain oracle). AUC > 0.5 means H1's aligned residual
+tends to rank *above* H0's; AUC < 0.5 means the opposite. Neither direction is
+privileged a priori — what matters is that the value differs from 0.5, and by
+how much.
+
+At `Var(ε) = 0` (no corruption at all), the two hypotheses differ only in
+training: the full model saw the forget group, the oracle never did. On a
+forget-group query that produces a real, systematic gap in the aligned
+residual — in this run, consistently in the negative direction, with CIs
+tight enough not to touch 0.5. As `Var(ε)` grows and the forget-context tokens
+get progressively randomised, both models' predictions on that context become
+less informative and the gap closes: **AUC moves monotonically toward 0.5**.
+That convergence is the success criterion for the whole method — this is what
+"the edit worked" looks like on this plot.
+
+Two things to do with the sign, if this goes into a write-up:
+- State the convention once (`H1` vs `H0`, which direction is "distinguishable")
+  and let the signed curve stand — the monotone approach to 0.5 is legible
+  either way and the direction itself may be worth reporting (e.g. it could
+  differ between C1/C2, or between architectures).
+- Or report `audit.symmetrised_auc_per_probe` (or `|AUC − 0.5|`) as a
+  magnitude-only companion curve if the write-up wants a single "is there a
+  signal" number without a sign to explain. Don't apply `symmetrised_auc` to
+  an already-averaged AUC — see the warning on its docstring; use the
+  `_per_probe` version or nothing.
+
+Also visible in that first sweep: **ATTN-S starts further from 0.5 (~0.35 vs
+ATTN-M's ~0.47) and takes longer in `Var(ε)` to reach chance.** That is a
+real, reproducible architectural difference in this run, not noise — the two
+lines are clearly separated at low σ², not just separated from 0.5. It is the
+first concrete instance of README prediction 5 (same function class, different
+sharpness of transition). Confirm it survives the multi-seed check in §4e
+before treating it as a finding rather than a one-run artefact.
+
+## 4e. Cross-seed check (the thing §2 said was still missing)
+
+Everything up to this point was one training seed and one probe seed. The
+bootstrap CI in the figures covers shadow and probe *sampling* noise within
+that one run — it says nothing about whether a different training seed
+produces a different ensemble mean, which is a separate and larger question a
+referee will ask.
+
+`train_ensembles.py` now takes `train.n_train_seeds` (default 3, seeds
+1/2/3) and trains that many independent ensembles, each to its own
+`artifacts/ensembles_{name}_ts{i}.pt`. `run_auc_sweep.py` takes
+`probe.n_probe_seeds` (default 3, seeds 777/778/779) and loops over every
+(train seed, probe seed) pair — 9 combinations at the defaults — tagging every
+row with `train_seed_idx` / `probe_seed_idx`. Training is cheap (~15s per
+ensemble at S=512 on a T4/P100), so this costs minutes, not hours; the sweep
+itself is forward passes only.
+
+`plot_auc_vs_var.py` detects multiple seed combinations automatically and
+switches the band from the within-run bootstrap CI to the **min–max range
+across seed combinations**, with the line as the across-seed median — this is
+the quantity to trust if the two kinds of uncertainty ever disagree.
+`make_figures.py`'s multi-panel diagnostic grid is not seed-aware; it now
+restricts itself to the first seed combination and says so, rather than
+silently plotting a zigzag from several overlapping values per x. Use
+`plot_auc_vs_var.py` for anything you intend to read cross-seed conclusions
+from.
+
+If the ATTN-S/ATTN-M gap from §4d survives this — i.e. the min–max bands for
+the two architectures still don't overlap at low `Var(ε)` — that upgrades it
+from "this run showed X" to "X across 3 independent training runs and 3
+independent probes," which is the level of evidence worth writing down.
+
+---
+
 ## 5. What was verified, and how
 
 `torch` could not be installed in the environment these changes were made in,
@@ -464,7 +539,9 @@ before trusting the refactor.** What *was* checked:
 - [x] `pytest tests/ -q` passes on GPU (confirmed: 14/14, then 18/18 after §4c's tests)
 - [x] no `check_ensemble_health` warnings in the training log — **check this on
       every run**, not just once; it is not guaranteed eliminated by the fix
-- [ ] ≥3 training seeds × ≥3 probe seeds
+- [x] ≥3 training seeds × ≥3 probe seeds — shipped defaults (§4e); confirm the
+      cross-seed run actually completes and re-check whether the ATTN-S/ATTN-M
+      gap survives it before calling that a finding
 - [ ] `forget` swept over all three groups
 - [ ] continuous PR knob implemented
 - [ ] closed-form overlay implemented and matching within CI

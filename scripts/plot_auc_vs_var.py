@@ -14,10 +14,20 @@ and .png alongside each.
     C3:  (x_f, y_f) -> (x_f + e1, y_f + e2)   both
 
 One figure, one panel, two lines (ATTN-S / ATTN-M). Nothing else on it.
+
+If results_{name}.csv has more than one (train_seed_idx, probe_seed_idx)
+combination -- i.e. run_auc_sweep.py was run with train.n_train_seeds > 1 or
+probe.n_probe_seeds > 1 -- the band switches from the within-run bootstrap CI
+to the min-max range ACROSS seed combinations, and the line becomes the
+across-seed median. This is deliberate: per NOTES.md section 2, the within-run
+CI covers shadow/probe sampling noise but says nothing about whether a
+different training seed gives a different ensemble mean. If the two kinds of
+uncertainty disagree, the across-seed one is the one to trust.
 """
 import argparse
 import csv
 import pathlib
+from collections import defaultdict
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -50,6 +60,29 @@ def logx(ax, xs):
     ax.set_xlabel(r"$\mathrm{Var}(\epsilon)$", fontsize=12)
 
 
+def n_seed_combos(rows):
+    combos = {(r.get("train_seed_idx", 0.0), r.get("probe_seed_idx", 0.0))
+             for r in rows}
+    return len(combos)
+
+
+def collapse_by_param(rows, arch, mode, field):
+    """
+    All values of `field` for (arch, mode), grouped by param, across every
+    seed combination present. Returns (xs_sorted, median, lo, hi) where lo/hi
+    are the min/max across seed combos (not a bootstrap CI).
+    """
+    by_param = defaultdict(list)
+    for r in rows:
+        if r["arch"] == arch and r["mode"] == mode:
+            by_param[r["param"]].append(r[field])
+    xs = sorted(by_param)
+    med = [float(np.median(by_param[x])) for x in xs]
+    lo = [min(by_param[x]) for x in xs]
+    hi = [max(by_param[x]) for x in xs]
+    return xs, med, lo, hi
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--config", required=True)
@@ -69,6 +102,12 @@ def main():
     archs = sorted({r["arch"] for r in rows})
     obs = args.observable
     S = int(cfg["train"]["n_shadows"])
+    n_combos = n_seed_combos(rows)
+    multi_seed = n_combos > 1
+    band_label = (f"min-max over {n_combos} (train,probe) seed pairs"
+                 if multi_seed else "95% bootstrap CI")
+    print(f"seed combinations in results: {n_combos} "
+         f"({'cross-seed' if multi_seed else 'single-seed'} mode)")
 
     for mode in MODES:
         if not any(r["mode"] == mode for r in rows):
@@ -77,12 +116,16 @@ def main():
         # ---------------------------------------------------- AUC vs Var(eps)
         fig, ax = plt.subplots(figsize=(5.4, 4.0))
         for arch, mk, col in zip(archs, ("-o", "-s"), ("C0", "C1")):
-            sel = sorted([r for r in rows if r["arch"] == arch and r["mode"] == mode],
-                         key=lambda r: r["param"])
-            xs = [r["param"] for r in sel]
-            ys = [r[f"auc_matched_{obs}"] for r in sel]
-            lo = [r[f"auc_matched_{obs}_lo"] for r in sel]
-            hi = [r[f"auc_matched_{obs}_hi"] for r in sel]
+            if multi_seed:
+                xs, ys, lo, hi = collapse_by_param(
+                    rows, arch, mode, f"auc_matched_{obs}")
+            else:
+                sel = sorted([r for r in rows if r["arch"] == arch and r["mode"] == mode],
+                             key=lambda r: r["param"])
+                xs = [r["param"] for r in sel]
+                ys = [r[f"auc_matched_{obs}"] for r in sel]
+                lo = [r[f"auc_matched_{obs}_lo"] for r in sel]
+                hi = [r[f"auc_matched_{obs}_hi"] for r in sel]
             ax.plot(xs, ys, mk, ms=4, lw=1.6, color=col, label=arch, zorder=3)
             ax.fill_between(xs, lo, hi, color=col, alpha=0.18, lw=0, zorder=1)
 
@@ -94,7 +137,7 @@ def main():
         ax.set_title(TITLES[mode], fontsize=12)
         ax.legend(fontsize=10, frameon=False)
         ax.margins(y=0.12)
-        fig.text(0.99, 0.01, f"{S} shadows, 95% bootstrap CI", ha="right",
+        fig.text(0.99, 0.01, f"{S} shadows, {band_label}", ha="right",
                  va="bottom", fontsize=7, color="0.45")
         fig.tight_layout()
         for ext in ("pdf", "png"):
@@ -104,11 +147,16 @@ def main():
         # ---------------------------------------------------- eps vs Var(eps)
         fig2, ax2 = plt.subplots(figsize=(5.4, 4.0))
         for arch, mk, col in zip(archs, ("-o", "-s"), ("C0", "C1")):
-            sel = sorted([r for r in rows if r["arch"] == arch and r["mode"] == mode],
-                         key=lambda r: r["param"])
-            xs = [r["param"] for r in sel]
-            ax2.plot(xs, [r["eps"] for r in sel], mk, ms=4, lw=1.6,
-                     color=col, label=arch)
+            if multi_seed:
+                xs, med, lo, hi = collapse_by_param(rows, arch, mode, "eps")
+                ax2.plot(xs, med, mk, ms=4, lw=1.6, color=col, label=arch)
+                ax2.fill_between(xs, lo, hi, color=col, alpha=0.18, lw=0)
+            else:
+                sel = sorted([r for r in rows if r["arch"] == arch and r["mode"] == mode],
+                             key=lambda r: r["param"])
+                xs = [r["param"] for r in sel]
+                ax2.plot(xs, [r["eps"] for r in sel], mk, ms=4, lw=1.6,
+                        color=col, label=arch)
         logx(ax2, xs)
         ax2.set_ylabel(r"$\varepsilon$  (preservation, lower is better)", fontsize=12)
         ax2.set_title(TITLES[mode], fontsize=12)

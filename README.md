@@ -14,6 +14,12 @@ point.
 > probe-averaged AUC cancel to ~0.5 regardless of the true signal — measured at
 > 0.79 on positive-label probe points and 0.23 on negative ones, averaging to
 > nothing. See `NOTES.md` §4b.
+>
+> **AUC below 0.5 is not an error.** `membership_auc(H1, H0)` is directional;
+> a real, reproducible effect can sit on either side of 0.5 and the first real
+> sweep's did. What to check is whether it moves monotonically toward 0.5 as
+> corruption grows (success) and whether the confidence band is tight enough
+> to be distinguishable from 0.5 in the first place. See `NOTES.md` §4d.
 
 > **Read `NOTES.md` before running anything.** It documents an algebra error in
 > the "what to expect" predictions below (C1 and C2 have their roles swapped),
@@ -61,9 +67,10 @@ icl-unlearning/
 │   ├── audit.py                # membership AUC + bootstrap CI + KL/MMD
 │   └── sweep.py                # orchestration
 ├── scripts/
-│   ├── train_ensembles.py      # → artifacts/ensembles_{name}.pt
-│   ├── run_auc_sweep.py        # → artifacts/results_{name}.csv
-│   └── make_figures.py         # → figures/*.pdf
+│   ├── train_ensembles.py      # → artifacts/ensembles_{name}_ts{0,1,...}.pt
+│   ├── run_auc_sweep.py        # → artifacts/results_{name}.csv (all seed combos)
+│   ├── plot_auc_vs_var.py      # → figures/auc_{C1,C2,C3}.pdf, eps_{...}.pdf
+│   └── make_figures.py         # → figures/*.pdf (diagnostic grid, single seed)
 ├── tests/test_sanity.py
 ├── NOTES.md                    # critique: what is missing for publishable results
 └── requirements.txt
@@ -78,8 +85,17 @@ pip install -r requirements.txt
 
 python scripts/train_ensembles.py --config configs/regression.yaml
 python scripts/run_auc_sweep.py   --config configs/regression.yaml
+python scripts/plot_auc_vs_var.py --config configs/regression.yaml
 python scripts/make_figures.py    --config configs/regression.yaml
 ```
+
+`train_ensembles.py` trains `train.n_train_seeds` independent ensembles
+(default 3) and `run_auc_sweep.py` sweeps every one of them against
+`probe.n_probe_seeds` probe draws (default 3) — 9 combinations at the
+defaults, all cheap since training is ~15s/ensemble at `n_shadows=512` and the
+sweep is forward passes only. `plot_auc_vs_var.py` automatically reports the
+min–max spread across those 9 runs instead of just the within-run bootstrap
+CI. See `NOTES.md` §4e for why both matter.
 
 Everything is keyed by `(name, arch, hypothesis)`; artifacts are cached, so
 re-running the sweep with a new grid does not retrain. To run a variant

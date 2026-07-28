@@ -229,6 +229,51 @@ def test_mmd2_subsamples_instead_of_oom():
     assert val == val2
 
 
+def test_collapse_by_param_aggregates_across_seed_combos():
+    """
+    plot_auc_vs_var.py's cross-seed aggregation: given rows tagged with
+    train_seed_idx/probe_seed_idx, collapse_by_param must group by `param`
+    across every seed combo and return a band that brackets the median.
+    """
+    sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "scripts"))
+    from plot_auc_vs_var import collapse_by_param, n_seed_combos
+
+    rows = []
+    for ts in range(3):
+        for ps in range(3):
+            for p, base in ((0.0, 0.4), (1.0, 0.6)):
+                rows.append({"arch": "ATTN-M", "mode": "C1", "param": p,
+                            "auc_matched_residual": base + 0.01 * (ts - ps),
+                            "train_seed_idx": ts, "probe_seed_idx": ps})
+
+    assert n_seed_combos(rows) == 9
+    xs, med, lo, hi = collapse_by_param(rows, "ATTN-M", "C1", "auc_matched_residual")
+    assert xs == [0.0, 1.0]
+    for i in range(2):
+        assert lo[i] <= med[i] <= hi[i]
+    assert abs(med[0] - 0.4) < 0.02
+    assert abs(med[1] - 0.6) < 0.02
+
+
+def test_train_seed_derivation_gives_distinct_seeds_per_index():
+    """
+    train_ensembles.py trains one ensemble per training-seed index ts, using
+    seed = base_seed + ts. Different ts must give different actual seeds, or
+    'n_train_seeds=3' would silently retrain the same ensemble three times.
+    """
+    sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "scripts"))
+    import train_ensembles as te
+
+    base = 1
+    seeds = [base + ts for ts in range(3)]
+    assert len(set(seeds)) == 3
+    # combined with the per-(arch,hyp) offset, still all distinct
+    combined = [s + te.stable_offset(arch, hyp)
+               for s in seeds for arch in ("ATTN-S", "ATTN-M")
+               for hyp in ("full", "oracle")]
+    assert len(set(combined)) == len(combined)
+
+
 def test_stable_offset_is_process_independent():
     """
     Regression test for the seeding bug: the offset must not depend on
