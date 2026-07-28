@@ -102,15 +102,34 @@ def sweep_point(spec: MixtureSpec, probe: Probe, M_full: torch.Tensor,
         # positive => part of the AUC drop is variance masking, not removal
         rec[f"masking_{name}"] = a_sh - am
 
+        # Both spreads must come from the SAME context, or the masking
+        # diagnostic is meaningless: obs1 is scored on the corrupted probe, so
+        # obs0m (oracle, same corrupted probe) is the like-for-like companion.
+        # This previously used obs0 (clean context), which made spread_h1 vs
+        # spread_h0 an apples-to-oranges comparison that would show a spurious
+        # gap growing with corruption strength.
         rec[f"spread_h1_{name}"] = audit.spread(obs1[name])
-        rec[f"spread_h0_{name}"] = audit.spread(obs0[name])
+        rec[f"spread_h0_{name}"] = audit.spread(obs0m[name])
+        rec[f"spread_h0_clean_{name}"] = audit.spread(obs0[name])
 
     # the un-aligned output observable, kept ONLY to quantify sign cancellation:
     # this is the quantity that pins to ~0.5 regardless of the true signal
     rec["auc_matched_output_unaligned"] = audit.membership_auc(
         raw1["output"], raw0m["output"])
 
-    # distributional criterion on the forget-population residual law
+    # Distributional criterion on the forget-population residual law.
+    #
+    # NOTE, deliberate and different from the AUC convention above: p2 uses the
+    # CLEAN-context oracle (yhat0), not the matched-context one. These measure
+    # different things and the asymmetry is intentional.
+    #   - AUC asks "can an attacker distinguish?", so both hypotheses must see
+    #     the same prompt or the attacker wins on edit-detection alone.
+    #   - eps asks "how close is the unlearned model to the retrain ideal?".
+    #     The retrained model is the target and does not need the edit -- in
+    #     deployment you would query it with a normal prompt. So the honest
+    #     comparison is edited-full vs un-edited-oracle.
+    # If you disagree with that reading, swap yhat0 -> yhat0m here and re-run;
+    # it is a one-line change, but state which convention you used.
     p = audit.fit_residual_law(yhat1, yq1)
     p2 = audit.fit_residual_law(yhat0, yq0)
     X_c, yl_c, yq_c = corrupt(probe, S, "none", 0.0, gen)

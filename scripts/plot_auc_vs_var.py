@@ -34,10 +34,28 @@ import numpy as np
 import yaml
 
 MODES = ("C1", "C2", "C3")
+
+# The x-axis is a single scalar knob sigma^2 = the config `param`. It is the
+# variance of each scalar noise COMPONENT, in every family. Spelled out in the
+# titles because "Var(eps)" alone is ambiguous for C2 (eps is a D-vector) and
+# for C3 (there is no single eps -- there are two independent ones sharing
+# sigma^2). corrupt.py computes s = param**0.5 once and multiplies both draws.
 TITLES = {
-    "C1": r"C1: $(x_f,\, y_f + \epsilon)$   label noise",
-    "C2": r"C2: $(x_f + \epsilon,\, y_f)$   input noise",
-    "C3": r"C3: $(x_f + \epsilon_1,\, y_f + \epsilon_2)$   both",
+    "C1": "C1  label noise\n"
+          r"$y_f + \epsilon,\ \ \epsilon\sim\mathcal{N}(0,\sigma^2)$",
+    "C2": "C2  input noise\n"
+          r"$x_f + \epsilon,\ \ \epsilon\sim\mathcal{N}(0,\sigma^2 I_D)$",
+    "C3": "C3  both (independent draws, shared $\\sigma^2$)\n"
+          r"$x_f + \epsilon_1,\ y_f + \epsilon_2,\ \ \epsilon_1\perp\epsilon_2$",
+}
+
+# Components perturbed per forget token. Equal sigma^2 does NOT mean equal
+# perturbation magnitude across panels, so this travels with the figure.
+FOOTER_ENERGY = {
+    "C1": r"perturbs 1 component/token:  $\mathbb{E}\|\delta\|^2=\sigma^2$",
+    "C2": r"perturbs $D$ components/token:  $\mathbb{E}\|\delta\|^2=D\sigma^2$",
+    "C3": r"perturbs $D{+}1$ components/token:  "
+          r"$\mathbb{E}\|\delta\|^2=(D{+}1)\sigma^2$",
 }
 
 
@@ -57,7 +75,8 @@ def logx(ax, xs):
     dec = [0.0] + [10.0 ** k for k in range(-3, 3) if 10.0 ** k <= max(xs)]
     ax.set_xticks(dec)
     ax.set_xticklabels(["0"] + [rf"$10^{{{int(round(np.log10(d)))}}}$" for d in dec[1:]])
-    ax.set_xlabel(r"$\mathrm{Var}(\epsilon)$", fontsize=12)
+    ax.set_xlabel(r"$\mathrm{Var}(\epsilon) = \sigma^2$   "
+                  r"(per noise component)", fontsize=11)
 
 
 def n_seed_combos(rows):
@@ -114,7 +133,7 @@ def main():
             continue
 
         # ---------------------------------------------------- AUC vs Var(eps)
-        fig, ax = plt.subplots(figsize=(5.4, 4.0))
+        fig, ax = plt.subplots(figsize=(5.4, 4.4))
         for arch, mk, col in zip(archs, ("-o", "-s"), ("C0", "C1")):
             if multi_seed:
                 xs, ys, lo, hi = collapse_by_param(
@@ -134,12 +153,15 @@ def main():
                 va="bottom", ha="right", fontsize=8, color="0.35")
         logx(ax, xs)
         ax.set_ylabel("membership AUC", fontsize=12)
-        ax.set_title(TITLES[mode], fontsize=12)
+        ax.set_title(TITLES[mode], fontsize=10.5)
         ax.legend(fontsize=10, frameon=False)
         ax.margins(y=0.12)
-        fig.text(0.99, 0.01, f"{S} shadows, {band_label}", ha="right",
-                 va="bottom", fontsize=7, color="0.45")
-        fig.tight_layout()
+        # tight_layout ignores fig.text, so reserve the bottom strip explicitly
+        # or the footer lands on top of the x-label.
+        fig.tight_layout(rect=(0, 0.075, 1, 1))
+        fig.text(0.99, 0.005, f"{S} shadows, {band_label}\n"
+                 + FOOTER_ENERGY[mode],
+                 ha="right", va="bottom", fontsize=6.5, color="0.45")
         for ext in ("pdf", "png"):
             fig.savefig(fdir / f"auc_{mode}.{ext}", dpi=180, bbox_inches="tight")
         plt.close(fig)
@@ -159,7 +181,7 @@ def main():
                         color=col, label=arch)
         logx(ax2, xs)
         ax2.set_ylabel(r"$\varepsilon$  (preservation, lower is better)", fontsize=12)
-        ax2.set_title(TITLES[mode], fontsize=12)
+        ax2.set_title(TITLES[mode], fontsize=10.5)
         ax2.legend(fontsize=10, frameon=False)
         ax2.margins(y=0.12)
         fig2.tight_layout()
