@@ -22,6 +22,7 @@ import sys
 from collections import defaultdict
 
 import matplotlib.pyplot as plt
+import numpy as np
 import torch
 import yaml
 
@@ -53,49 +54,112 @@ def main():
              if any(r["mode"] == m for r in rows)]
 
     # ---------------------------------------------------------- AUC sweeps
+    #
+    # Layout rules, learned the hard way from the first version of this figure:
+    #
+    #  * symlog with linthresh=1e-3 renders the NEGATIVE branch of the axis even
+    #    though every sigma^2 is >= 0. That is what produced the unreadable
+    #    "-10^0 10^-1 10^-2 10^-3 0 10^-3 ..." tick pile-up. Clamp xlim to
+    #    [0, max] and set the tick locations explicitly.
+    #  * a hard ylim of (0.4, 1.02) left the data squashed into the bottom 15%
+    #    of every panel. Autoscale to the data plus the null band instead.
+    #  * five overlapping lines per panel (2 solid + 2 dashed + 1 dotted) is too
+    #    many, and the dashed legacy curve was the visually dominant one despite
+    #    being the quantity we explicitly do not want read. It moves to its own
+    #    figure below.
+    def style_x(ax, mode, xs):
+        if mode == "flip":
+            ax.axvline(0.5, color="r", lw=0.8, ls="--", alpha=0.6)
+            ax.set_xlabel("flip strength $t$")
+        elif mode == "whiten":
+            ax.set_xlabel("interpolation")
+        else:
+            lt = 1e-3
+            ax.set_xscale("symlog", linthresh=lt, linscale=0.35)
+            ax.set_xlim(0, max(xs) * 1.3)
+            decades = [0.0] + [10.0 ** k for k in range(-3, 3)
+                               if 10.0 ** k <= max(xs)]
+            ax.set_xticks(decades)
+            ax.set_xticklabels(["0"] + [rf"$10^{{{int(round(np.log10(d)))}}}$"
+                                        for d in decades[1:]])
+            ax.set_xlabel(r"noise variance $\sigma^2$")
+        ax.tick_params(axis="x", labelsize=8)
+
+    OBS = (("loss", "-o", "C0", r"loss $\ell=(\hat y-y)^2$"),
+           ("residual", "-s", "C1", r"residual $\mathrm{sign}(y)(\hat y-y)$"))
+
     fig, axes = plt.subplots(len(archs), len(modes),
-                             figsize=(3.1 * len(modes), 2.8 * len(archs)),
+                             figsize=(3.3 * len(modes), 3.0 * len(archs)),
                              squeeze=False, sharey=True)
+    lo_all, hi_all = [], []
     for i, arch in enumerate(archs):
         for j, mode in enumerate(modes):
             ax = axes[i][j]
             sel = sorted([r for r in rows if r["arch"] == arch and r["mode"] == mode],
                          key=lambda r: r["param"])
             xs = [r["param"] for r in sel]
-            for obs, style, col in (("loss", "-o", "C0"), ("output", "-s", "C1")):
+            for obs, style, col, lab in OBS:
                 ax.plot(xs, [r[f"auc_matched_{obs}"] for r in sel], style,
-                        ms=3, color=col, label=f"AUC({obs})")
-                ax.fill_between(xs,
-                                [r[f"auc_matched_{obs}_lo"] for r in sel],
-                                [r[f"auc_matched_{obs}_hi"] for r in sel],
-                                color=col, alpha=0.20, lw=0)
-                # legacy clean-context comparison, for reference only
-                ax.plot(xs, [r[f"auc_{obs}"] for r in sel], ls="--", lw=0.7,
-                        color=col, alpha=0.45)
-            # shared-noise control: where it separates from the solid curve, the
-            # drop is variance masking rather than removal
+                        ms=3.5, lw=1.4, color=col, label=lab, zorder=3)
+                lo = [r[f"auc_matched_{obs}_lo"] for r in sel]
+                hi = [r[f"auc_matched_{obs}_hi"] for r in sel]
+                ax.fill_between(xs, lo, hi, color=col, alpha=0.18, lw=0, zorder=1)
+                lo_all += lo
+                hi_all += hi
             if mode in ("C1", "C2", "C3"):
-                ax.plot(xs, [r["auc_shared_loss"] for r in sel], ":", lw=1.1,
-                        color="C0", alpha=0.9, label="AUC(loss), shared noise")
-            ax.axhline(0.5, color="k", lw=0.8, ls=":")
-            if mode == "flip":
-                ax.axvline(0.5, color="r", lw=0.8, ls="--", alpha=0.6)
-                ax.set_xlabel("strength t")
-            elif mode == "whiten":
-                ax.set_xlabel("interpolation")
-            else:
-                ax.set_xscale("symlog", linthresh=1e-3)
-                ax.set_xlabel(r"$\sigma^2$")
-            ax.set_ylim(0.4, 1.02)
+                ax.plot(xs, [r["auc_shared_loss"] for r in sel], ":", lw=1.3,
+                        color="C4", zorder=2,
+                        label="loss, shared noise (masking control)")
+            ax.axhline(0.5, color="k", lw=0.9, ls=":", zorder=0)
+            style_x(ax, mode, xs)
             if j == 0:
                 ax.set_ylabel(f"{arch}\nmembership AUC")
             if i == 0:
                 ax.set_title(mode)
-            if i == 0 and j == 0:
-                ax.legend(fontsize=7, loc="lower left")
-    fig.suptitle(f"Membership AUC vs corruption strength — {name}", y=1.0)
-    fig.tight_layout()
+    # one shared y-range, sized to the data and always containing 0.5
+    pad = 0.02
+    ylo = min(min(lo_all), 0.5) - pad
+    yhi = max(max(hi_all), 0.5) + pad
+    for row in axes:
+        for ax in row:
+            ax.set_ylim(ylo, yhi)
+    axes[0][0].legend(fontsize=7, loc="best", framealpha=0.9)
+    fig.suptitle(f"Membership AUC vs corruption strength — {name}   "
+                 f"(matched context, {int(cfg['train']['n_shadows'])} shadows, "
+                 f"95% bootstrap CI)", y=0.99, fontsize=11)
+    fig.tight_layout(rect=(0, 0, 1, 0.96))
     fig.savefig(fdir / f"auc_sweep_{name}.pdf", bbox_inches="tight")
+
+    # ------------------------------------------- confound / artefact diagnostics
+    # Everything we do NOT want overlaid on the main figure, kept so the size of
+    # each artefact stays auditable.
+    figd, axd = plt.subplots(len(archs), len(modes),
+                             figsize=(3.3 * len(modes), 3.0 * len(archs)),
+                             squeeze=False, sharey=True)
+    for i, arch in enumerate(archs):
+        for j, mode in enumerate(modes):
+            ax = axd[i][j]
+            sel = sorted([r for r in rows if r["arch"] == arch and r["mode"] == mode],
+                         key=lambda r: r["param"])
+            xs = [r["param"] for r in sel]
+            ax.plot(xs, [r["auc_matched_loss"] for r in sel], "-o", ms=3,
+                    color="C0", label="matched context (correct)")
+            ax.plot(xs, [r["auc_loss"] for r in sel], "--", lw=1.2, color="C3",
+                    label="clean-context H0 (confounded)")
+            ax.plot(xs, [r["auc_matched_output_unaligned"] for r in sel], "-.",
+                    lw=1.1, color="C7", label=r"un-aligned $\hat y$ (cancels)")
+            ax.axhline(0.5, color="k", lw=0.9, ls=":")
+            style_x(ax, mode, xs)
+            ax.set_ylim(0.3, 1.02)
+            if j == 0:
+                ax.set_ylabel(f"{arch}\nmembership AUC")
+            if i == 0:
+                ax.set_title(mode)
+    axd[0][0].legend(fontsize=7, loc="best", framealpha=0.9)
+    figd.suptitle(f"Artefact diagnostics — {name}  (gap between C0 and C3 is the "
+                  f"context confound; C7 is sign cancellation)", y=0.99, fontsize=10)
+    figd.tight_layout(rect=(0, 0, 1, 0.96))
+    figd.savefig(fdir / f"diagnostics_{name}.pdf", bbox_inches="tight")
 
     # ------------------------------------------------------ Pareto frontier
     fig2, axes2 = plt.subplots(1, len(archs), figsize=(4.4 * len(archs), 3.8),

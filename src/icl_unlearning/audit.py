@@ -9,11 +9,29 @@ Two families, deliberately kept side by side because they can disagree:
    Success is AUC -> 0.5.
 
    Computed on TWO observables:
-     loss   l = (yhat - y)^2      sign-blind
-     output yhat                  sign-aware
+     loss     l = (yhat - y)^2           sign-blind
+     residual s * (yhat - y), s = sign(y) sign-aware
    Since l is sigma(r)-measurable with r = yhat - y, and r -> l discards the
    sign, AUC*(l) <= AUC*(r) always. An edit that inverts rather than removes
    sits exactly in the gap.
+
+   The sign-aware observable is the SIGN-ALIGNED residual, not raw yhat.
+   This is not cosmetic. At probe point p the query label y_q(p) is fixed, and
+   an under-fitting oracle shrinks its prediction toward zero. So for y_q > 0
+   the oracle sits BELOW the full model (per-point AUC > 0.5) and for y_q < 0
+   it sits ABOVE (per-point AUC < 0.5). Averaging raw per-point AUC over a
+   probe with mixed-sign queries therefore cancels to ~0.5 no matter how
+   distinguishable the two ensembles are.
+
+   Measured, with an oracle deliberately crippled to 55% shrinkage (i.e. a
+   huge membership signal by construction):
+       raw yhat, averaged over probe   0.50 - 0.55     <- reports nothing
+       broken down: y_q > 0            0.79
+                    y_q < 0            0.23
+       sign-aligned                    0.76 - 0.82     <- recovers the signal
+   Multiplying by s = sign(y_q) before ranking removes the cancellation. The
+   auditor knows the probe label by construction, so this is inside the threat
+   model. `observables_raw` keeps the old un-aligned version for comparison.
 
 2. Distributional (population-level).
    alpha = KL(p1 || p) removal, eps = KL(p2 || p) preservation, over the
@@ -24,7 +42,7 @@ Conventions
   - AUC is computed per probe point across the shadow axis, then averaged.
   - AUC is returned RAW. AUC < 0.5 means the attacker's statistic is inverted,
     which is not success. Use `symmetrised_auc` if you want the corrected
-    quantity.
+    quantity -- but see the warning on its docstring about aggregation order.
 """
 from __future__ import annotations
 
@@ -126,12 +144,60 @@ def membership_auc_ci(score_h1: torch.Tensor, score_h0: torch.Tensor,
 
 
 def symmetrised_auc(a: float) -> float:
-    """max(a, 1-a): folds an inverted attacker back onto the informative side."""
+    """
+    max(a, 1-a): folds an inverted attacker back onto the informative side.
+
+    WARNING on aggregation order. This must be applied PER PROBE POINT and then
+    averaged; applying it to an already-averaged AUC is a no-op against sign
+    cancellation, because max(mean_p a_p, 1 - mean_p a_p) != mean_p max(a_p, 1-a_p).
+
+    Also note that the per-point version is biased UPWARD under the null: if
+    a_p ~ 0.5 +/- 0.05 then mean_p max(a_p, 1-a_p) ~ 0.54, not 0.50. Prefer
+    the sign-aligned observable, which removes the cancellation without taking
+    a max and so stays unbiased at 0.5. Use `null_auc_level` to calibrate if
+    you do report the symmetrised version.
+    """
     return max(a, 1.0 - a)
 
 
+def symmetrised_auc_per_probe(score_h1: torch.Tensor,
+                              score_h0: torch.Tensor) -> float:
+    """mean_p max(a_p, 1-a_p) -- the correct aggregation order. Biased up at the null."""
+    a = auc_per_probe(score_h1, score_h0)
+    return float(torch.maximum(a, 1.0 - a).mean())
+
+
+def null_auc_level(S: int, P: int, n_rep: int = 200, seed: int = 0) -> float:
+    """
+    Where the symmetrised AUC sits when there is NO signal, at this (S, P).
+    Draws both ensembles from the same distribution and returns the mean
+    symmetrised AUC. Anything at or below this level is consistent with chance.
+    """
+    g = torch.Generator().manual_seed(seed)
+    vals = []
+    for _ in range(n_rep):
+        h1 = torch.randn(S, P, generator=g)
+        h0 = torch.randn(S, P, generator=g)
+        vals.append(symmetrised_auc_per_probe(h1, h0))
+    return float(torch.tensor(vals).mean())
+
+
 def observables(yhat: torch.Tensor, yq: torch.Tensor):
-    """-> dict of observable name -> [S, P] score tensor."""
+    """
+    -> dict of observable name -> [S, P] score tensor.
+
+    "residual" is SIGN-ALIGNED: s * (yhat - y) with s = sign(y). See the module
+    docstring -- without the alignment the probe-averaged AUC cancels to 0.5
+    by construction and the observable reports nothing.
+    """
+    r = yhat - yq
+    s = torch.sign(yq)
+    s = torch.where(s == 0, torch.ones_like(s), s)
+    return {"loss": r ** 2, "residual": s * r}
+
+
+def observables_raw(yhat: torch.Tensor, yq: torch.Tensor):
+    """The old, un-aligned pair. Kept only to quantify the cancellation."""
     return {"loss": (yhat - yq) ** 2, "output": yhat}
 
 

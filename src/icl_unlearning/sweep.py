@@ -37,7 +37,7 @@ from .models import apply_frozen
 def sweep_point(spec: MixtureSpec, probe: Probe, M_full: torch.Tensor,
                 M_oracle: torch.Tensor, mode: str, param: float,
                 gen: torch.Generator, retain_x=None, n_boot: int = 200,
-                boot_seed: int = 0) -> dict:
+                boot_seed: int = 0, n_shared_reps: int = 16) -> dict:
     """One grid point. Returns a flat record ready for a dataframe row."""
     S = M_full.shape[0]
 
@@ -57,41 +57,57 @@ def sweep_point(spec: MixtureSpec, probe: Probe, M_full: torch.Tensor,
 
     # Masking control: same corruption, one noise draw shared across shadows.
     # Deterministic modes are unaffected, so skip the extra work there.
+    #
+    # This MUST be averaged over several independent shared draws. With a single
+    # draw every shadow sees the identical corruption, so the resulting AUC is a
+    # function of that one draw and its sampling variance is enormous -- it comes
+    # out as a jagged line that swings 0.4-0.9 between adjacent grid points and
+    # is unreadable. `n_shared_reps` independent draws, averaged, fixes it.
     stochastic = mode in ("C1", "C2", "C3")
+    shared_acc = {}
     if stochastic:
-        Xs, yls, yqs = corrupt(probe, S, mode, param, gen, retain_x=retain_x,
-                               shared_noise=True)
-        yhat1s = apply_frozen(M_full, Xs, yls, spec.N)
-        yhat0s = apply_frozen(M_oracle, Xs, yls, spec.N)
+        for _ in range(n_shared_reps):
+            Xs, yls, yqs = corrupt(probe, S, mode, param, gen, retain_x=retain_x,
+                                   shared_noise=True)
+            o1s = audit.observables(apply_frozen(M_full, Xs, yls, spec.N), yqs)
+            o0s = audit.observables(apply_frozen(M_oracle, Xs, yls, spec.N), yqs)
+            for nm in o1s:
+                shared_acc.setdefault(nm, []).append(
+                    audit.membership_auc(o1s[nm], o0s[nm]))
 
     obs1 = audit.observables(yhat1, yq1)
     obs0 = audit.observables(yhat0, yq0)
     obs0m = audit.observables(yhat0m, yq1)
+    raw1 = audit.observables_raw(yhat1, yq1)
+    raw0m = audit.observables_raw(yhat0m, yq1)
 
     rec = {"mode": mode, "param": float(param)}
-    for name in ("loss", "output"):
+    for name in ("loss", "residual"):
         a = audit.membership_auc(obs1[name], obs0[name])
         rec[f"auc_{name}"] = a
-        rec[f"auc_{name}_sym"] = audit.symmetrised_auc(a)
 
         am, lo, hi = audit.membership_auc_ci(obs1[name], obs0m[name],
                                              n_boot=n_boot, seed=boot_seed)
         rec[f"auc_matched_{name}"] = am
         rec[f"auc_matched_{name}_lo"] = lo
         rec[f"auc_matched_{name}_hi"] = hi
+        # correct aggregation order: symmetrise per probe point, then average
+        rec[f"auc_matched_{name}_sym"] = audit.symmetrised_auc_per_probe(
+            obs1[name], obs0m[name])
 
-        if stochastic:
-            o1s = audit.observables(yhat1s, yqs)[name]
-            o0s = audit.observables(yhat0s, yqs)[name]
-            a_sh = audit.membership_auc(o1s, o0s)
-        else:
-            a_sh = am
+        a_sh = (sum(shared_acc[name]) / len(shared_acc[name])
+                if stochastic else am)
         rec[f"auc_shared_{name}"] = a_sh
         # positive => part of the AUC drop is variance masking, not removal
         rec[f"masking_{name}"] = a_sh - am
 
         rec[f"spread_h1_{name}"] = audit.spread(obs1[name])
         rec[f"spread_h0_{name}"] = audit.spread(obs0[name])
+
+    # the un-aligned output observable, kept ONLY to quantify sign cancellation:
+    # this is the quantity that pins to ~0.5 regardless of the true signal
+    rec["auc_matched_output_unaligned"] = audit.membership_auc(
+        raw1["output"], raw0m["output"])
 
     # distributional criterion on the forget-population residual law
     p = audit.fit_residual_law(yhat1, yq1)
@@ -107,7 +123,7 @@ def sweep_point(spec: MixtureSpec, probe: Probe, M_full: torch.Tensor,
 @torch.no_grad()
 def run_sweep(spec: MixtureSpec, probe: Probe, ensembles: dict, grids: dict,
               seed: int = 0, device="cuda", retain_x=None,
-              n_boot: int = 200) -> list[dict]:
+              n_boot: int = 200, n_shared_reps: int = 16) -> list[dict]:
     """
     ensembles: {(arch, hyp): M}
     grids:     {mode: [param, ...]}
@@ -123,14 +139,15 @@ def run_sweep(spec: MixtureSpec, probe: Probe, ensembles: dict, grids: dict,
             for k, prm in enumerate(params):
                 rec = sweep_point(spec, probe, M_full, M_oracle, mode, prm,
                                   gen, retain_x=retain_x, n_boot=n_boot,
-                                  boot_seed=seed + 1000 * k)
+                                  boot_seed=seed + 1000 * k,
+                                  n_shared_reps=n_shared_reps)
                 rec["arch"] = arch
                 rows.append(rec)
                 print(f"  {arch:7s} {mode:7s} p={prm:<8.4g} "
                       f"AUCm(loss)={rec['auc_matched_loss']:.3f}"
                       f"[{rec['auc_matched_loss_lo']:.3f},"
                       f"{rec['auc_matched_loss_hi']:.3f}] "
-                      f"AUCm(out)={rec['auc_matched_output']:.3f} "
+                      f"AUCm(res)={rec['auc_matched_residual']:.3f} "
                       f"mask={rec['masking_loss']:+.3f} "
                       f"eps={rec['eps']:.4f}", flush=True)
     return rows

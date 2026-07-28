@@ -263,6 +263,83 @@ motivates the distributional criterion.
 
 ---
 
+## 4b. Post-mortem on the first Kaggle figure
+
+The first real sweep produced a figure that was unreadable. Four separate
+causes, two cosmetic and two substantive. All four are now fixed, but the
+substantive ones invalidate the first run's numbers — **re-run after pulling.**
+
+### (i) `AUC(output)` was pinned near 0.5 by sign cancellation — a real bug
+
+The flat orange line sitting at ~0.44 in every panel, unmoved by any
+corruption, was not a finding. It was structurally incapable of moving.
+
+At probe point `p` the query label `y_q(p)` is fixed, and an under-fitting
+oracle shrinks its prediction toward zero. So for `y_q > 0` the oracle sits
+*below* the full model (per-point AUC > 0.5) and for `y_q < 0` it sits *above*
+(per-point AUC < 0.5). Averaging raw per-point AUC over a probe with mixed-sign
+queries cancels the two halves against each other.
+
+Measured on a synthetic case with the oracle crippled to 55% shrinkage — an
+enormous membership signal by construction:
+
+| aggregation | AUC |
+|---|---|
+| raw `ŷ`, averaged over probe (**what the code did**) | 0.50 – 0.55 |
+|  ⤷ restricted to `y_q > 0` | 0.79 |
+|  ⤷ restricted to `y_q < 0` | 0.23 |
+| sign-aligned `sign(y)·(ŷ−y)` (**fix**) | 0.76 – 0.82 |
+| `AUC(loss)` for comparison | 0.25 – 0.31 |
+
+The observable is now `sign(y)·(ŷ−y)`, renamed `residual`. This also repairs a
+mismatch between `audit.py`'s docstring and its code: the nesting argument
+`AUC*(ℓ) ≤ AUC*(r)` is stated for `r = ŷ − y`, but the code was ranking raw
+`ŷ`, for which `ℓ` is not even a function of the observable, so the argument
+did not apply. `observables_raw` keeps the old pair so the cancellation stays
+measurable, and it is plotted in the new diagnostics figure.
+
+**Related bug:** `symmetrised_auc` was being applied to the already-averaged
+AUC. `max(mean_p a_p, 1 − mean_p a_p) ≠ mean_p max(a_p, 1 − a_p)`, and only the
+latter undoes cancellation. Fixed via `symmetrised_auc_per_probe`. Note the
+per-point version is biased *upward* under the null (~0.54 at S=100, P=64), so
+`null_auc_level()` is provided to calibrate it — this is why sign-alignment,
+which needs no `max`, is the better primary metric.
+
+### (ii) The shared-noise masking control was pure noise — my design error
+
+The jagged dotted line swinging between 0.4 and 0.9 between adjacent grid
+points was an artefact of the control itself. With a *single* shared draw,
+every shadow sees the identical corruption, so the resulting AUC is a function
+of that one realisation and its sampling variance is enormous.
+
+Fixed by averaging over `n_shared_reps: 16` independent shared draws. The
+control is only meaningful as an expectation over draws.
+
+### (iii) `symlog` was rendering a negative axis branch — cosmetic
+
+`ax.set_xscale("symlog", linthresh=1e-3)` draws the symmetric negative side
+even though every `σ²` is ≥ 0. That is the source of the
+`−10⁰10⁻¹10⁻²10⁻³0 10⁻³…` tick pile-up. Now `xlim` is clamped to `[0, max]`
+with explicit decade ticks and a `0` label.
+
+### (iv) `ylim = (0.4, 1.02)` squashed all the data — cosmetic
+
+Everything lived in 0.42–0.58, i.e. the bottom 15% of each panel, while 80% of
+the figure was empty. Now autoscaled to the data plus the null line. The five
+overlapping lines per panel are also split: the main figure shows matched-context
+AUC plus the masking control; the confounded clean-context curve and the
+un-aligned `ŷ` curve move to `figures/diagnostics_{name}.pdf`.
+
+### What the figure was actually telling you
+
+Strip the artefacts and one real message remains: **every confidence band
+covered 0.5 across the entire grid.** At `n_shadows: 100` nothing in that sweep
+was statistically resolvable, which is exactly what §2 predicted. Even after
+the sign-alignment fix, do not read any structure off a run at S=100. Go to 512
+before interpreting anything.
+
+---
+
 ## 5. What was verified, and how
 
 `torch` could not be installed in the environment these changes were made in,
@@ -292,6 +369,13 @@ before trusting the refactor.** What *was* checked:
 - **The vectorised AUC.** Transcribed to NumPy and checked against the
   `P(A>B) + ½P(A=B)` definition across five shape/shift configurations
   (including unequal `n₁ ≠ n₀` and an inverted case): max error 0.0 exactly.
+
+- **The sign-cancellation diagnosis** (`tests/diagnose_flat_output_auc.py`),
+  numbers in §4b(i). Reproduced as two unit tests.
+
+- **The rebuilt figure**, rendered against a synthetic CSV with the real column
+  set and grids: axes now read `0 10⁻³ 10⁻² … 10²` with no negative branch and
+  no overlapping ticks, and the y-range fits the data.
 
 - **Bootstrap calibration.** Under the null (identical distributions,
   `S = 100`, `P = 64`), the 95% interval covered 0.5 in 199/200 replications.

@@ -33,6 +33,9 @@ train:
 sweep:
   seed: 2
   n_boot: 200              # bootstrap resamples for the AUC confidence band
+  n_shared_reps: 16        # independent shared-noise draws for the masking
+                           # control; a single draw gives an unreadably jagged
+                           # curve because all shadows then see one realisation
   grids:
     none:  [0.0]
     # log-dense in sigma^2: the AUC-vs-variance curve is the headline figure,

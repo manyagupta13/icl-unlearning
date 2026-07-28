@@ -123,6 +123,53 @@ def test_shared_noise_is_constant_across_shadows():
     assert not torch.allclose(f2, f2[:1].expand_as(f2), atol=1e-7)
 
 
+def test_sign_alignment_recovers_a_signal_that_raw_output_cancels():
+    """
+    The audit's headline failure mode. Build an obvious membership signal: the
+    oracle shrinks its prediction toward zero. Averaging RAW per-probe AUC over
+    a mixed-sign probe cancels to ~0.5; sign-aligning recovers it.
+    """
+    g = torch.Generator().manual_seed(11)
+    S, P, kappa = 100, 64, 0.55
+    yq = torch.randn(P, generator=g)
+    yhat1 = yq + 0.25 * torch.randn(S, P, generator=g)
+    yhat0 = kappa * yq + 0.25 * torch.randn(S, P, generator=g)
+
+    raw = audit.observables_raw(yhat1, yq)["output"]
+    raw0 = audit.observables_raw(yhat0, yq)["output"]
+    a_raw = audit.membership_auc(raw, raw0)
+
+    ali = audit.observables(yhat1, yq)["residual"]
+    ali0 = audit.observables(yhat0, yq)["residual"]
+    a_ali = audit.membership_auc(ali, ali0)
+
+    assert abs(a_raw - 0.5) < 0.08, f"raw output AUC should cancel, got {a_raw}"
+    assert a_ali > 0.70, f"sign-aligned AUC should see the signal, got {a_ali}"
+
+
+def test_symmetrised_aggregation_order_matters():
+    """max(mean) is not mean(max); the former cannot undo sign cancellation."""
+    g = torch.Generator().manual_seed(12)
+    P = 64
+    yq = torch.randn(P, generator=g)
+    yhat1 = yq + 0.25 * torch.randn(100, P, generator=g)
+    yhat0 = 0.55 * yq + 0.25 * torch.randn(100, P, generator=g)
+    o1 = audit.observables_raw(yhat1, yq)["output"]
+    o0 = audit.observables_raw(yhat0, yq)["output"]
+
+    after = audit.symmetrised_auc(audit.membership_auc(o1, o0))   # wrong order
+    before = audit.symmetrised_auc_per_probe(o1, o0)              # right order
+    assert abs(after - 0.5) < 0.08
+    assert before > 0.70
+    assert before > after
+
+
+def test_null_auc_level_is_above_half():
+    """Per-point symmetrisation is biased up at the null; quantify it."""
+    lvl = audit.null_auc_level(S=100, P=64, n_rep=40, seed=0)
+    assert 0.50 < lvl < 0.60, lvl
+
+
 def test_stable_offset_is_process_independent():
     """
     Regression test for the seeding bug: the offset must not depend on

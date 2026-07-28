@@ -6,8 +6,14 @@ in-context learners.
 Task is **in-context linear regression** (`y = xᵀβ`), swept over two
 parameterisations of the same function class, **ATTN-S** and **ATTN-M**.
 
-AUC is reported on **both** observables (loss `ℓ = (ŷ−y)²` and signed output `ŷ`),
-because the two disagree and the disagreement is the point.
+AUC is reported on **both** observables (loss `ℓ = (ŷ−y)²` and the sign-aligned
+residual `sign(y)·(ŷ−y)`), because the two disagree and the disagreement is the
+point.
+
+> The sign-aware observable must be **sign-aligned**. Ranking raw `ŷ` makes the
+> probe-averaged AUC cancel to ~0.5 regardless of the true signal — measured at
+> 0.79 on positive-label probe points and 0.23 on negative ones, averaging to
+> nothing. See `NOTES.md` §4b.
 
 > **Read `NOTES.md` before running anything.** It documents an algebra error in
 > the "what to expect" predictions below (C1 and C2 have their roles swapped),
