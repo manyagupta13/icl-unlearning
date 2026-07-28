@@ -70,6 +70,8 @@ icl-unlearning/
 │   ├── train_ensembles.py      # → artifacts/ensembles_{name}_ts{0,1,...}.pt
 │   ├── run_auc_sweep.py        # → artifacts/results_{name}.csv (all seed combos)
 │   ├── plot_auc_vs_var.py      # → figures/auc_{C1,C2,C3}.pdf, eps_{...}.pdf
+│   ├── plot_tradeoff.py        # → figures/tradeoff_*.pdf, frontier_*.pdf
+│   ├── oracle_control_attack.py# → control: is the attack reading membership?
 │   └── make_figures.py         # → figures/*.pdf (diagnostic grid, single seed)
 ├── tests/test_sanity.py
 ├── NOTES.md                    # critique: what is missing for publishable results
@@ -86,7 +88,10 @@ pip install -r requirements.txt
 python scripts/train_ensembles.py --config configs/regression.yaml
 python scripts/run_auc_sweep.py   --config configs/regression.yaml
 python scripts/plot_auc_vs_var.py --config configs/regression.yaml
-python scripts/make_figures.py    --config configs/regression.yaml
+python scripts/plot_tradeoff.py   --config configs/regression.yaml
+
+# control experiment -- run once, it settles what the attack is measuring
+python scripts/oracle_control_attack.py --config configs/regression.yaml
 ```
 
 `train_ensembles.py` trains `train.n_train_seeds` independent ensembles

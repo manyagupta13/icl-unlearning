@@ -79,6 +79,21 @@ def logx(ax, xs):
                   r"(per noise component)", fontsize=11)
 
 
+def collapse_theory(rows, arch, mode):
+    """
+    Median closed-form AUC per param, skipping NaN (modes with no derived
+    form). Returns ([], []) if nothing usable, so the caller can just not draw.
+    """
+    by = defaultdict(list)
+    for r in rows:
+        if r["arch"] == arch and r["mode"] == mode:
+            v = r.get("auc_theory_residual", float("nan"))
+            if v == v:                       # NaN check without importing math
+                by[r["param"]].append(v)
+    xs = sorted(by)
+    return xs, [float(np.median(by[x])) for x in xs]
+
+
 def n_seed_combos(rows):
     combos = {(r.get("train_seed_idx", 0.0), r.get("probe_seed_idx", 0.0))
              for r in rows}
@@ -123,6 +138,7 @@ def main():
     S = int(cfg["train"]["n_shadows"])
     n_combos = n_seed_combos(rows)
     multi_seed = n_combos > 1
+    has_theory = "auc_theory_residual" in (rows[0] if rows else {})
     band_label = (f"min-max over {n_combos} (train,probe) seed pairs"
                  if multi_seed else "95% bootstrap CI")
     print(f"seed combinations in results: {n_combos} "
@@ -147,6 +163,15 @@ def main():
                 hi = [r[f"auc_matched_{obs}_hi"] for r in sel]
             ax.plot(xs, ys, mk, ms=4, lw=1.6, color=col, label=arch, zorder=3)
             ax.fill_between(xs, lo, hi, color=col, alpha=0.18, lw=0, zorder=1)
+
+            # Closed-form prediction (C1/C2 only; NaN elsewhere by design).
+            # Drawn thin and underneath so measurement stays the foreground.
+            if has_theory:
+                tx, ty = collapse_theory(rows, arch, mode)
+                if tx:
+                    ax.plot(tx, ty, "-", lw=1.0, color="k", alpha=0.55,
+                            zorder=2,
+                            label="closed form" if arch == archs[0] else None)
 
         ax.axhline(0.5, color="k", lw=1.0, ls=":", zorder=0)
         ax.text(0.985, 0.5, " chance", transform=ax.get_yaxis_transform(),

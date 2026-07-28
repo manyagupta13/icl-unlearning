@@ -27,7 +27,7 @@ from __future__ import annotations
 
 import torch
 
-from . import audit
+from . import audit, theory
 from .corrupt import corrupt
 from .data import MixtureSpec, Probe, assemble
 from .models import apply_frozen
@@ -116,6 +116,14 @@ def sweep_point(spec: MixtureSpec, probe: Probe, M_full: torch.Tensor,
     # this is the quantity that pins to ~0.5 regardless of the true signal
     rec["auc_matched_output_unaligned"] = audit.membership_auc(
         raw1["output"], raw0m["output"])
+
+    # Closed-form prediction, independent of everything measured above. Where
+    # this tracks auc_matched_residual, the pipeline and the algebra agree;
+    # a systematic gap means one of them is wrong. C3/flip/whiten have no
+    # derived form (see theory.py), so they get NaN rather than a guess.
+    rec["auc_theory_residual"] = (
+        theory.predicted_auc(M_full, M_oracle, probe, mode, param)
+        if mode in ("C1", "C2") else float("nan"))
 
     # Distributional criterion on the forget-population residual law.
     #

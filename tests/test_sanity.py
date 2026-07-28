@@ -229,6 +229,58 @@ def test_mmd2_subsamples_instead_of_oom():
     assert val == val2
 
 
+def test_theory_moments_match_monte_carlo():
+    """
+    theory.noise_moments must reproduce the empirical mean shift and variance
+    of yhat under the corruption. This is the NOTES.md section 0 algebra,
+    checked against the actual corrupt()+apply_frozen() pipeline rather than a
+    reimplementation -- so it also catches drift between the two.
+    """
+    from icl_unlearning import theory
+    gen = torch.Generator(device=DEV).manual_seed(21)
+    probe = make_probe(SPEC, {"z1": 10, "z2": 10, "z3": 11}, "z3", 6, gen, DEV)
+    M = 0.3 * torch.randn(1, SPEC.D + 1, SPEC.D + 1, generator=gen)
+
+    _, _, yhat_clean = theory.readout_covector(M, probe)
+
+    for mode in ("C1", "C2"):
+        for s2 in (0.1, 1.0):
+            shift, var = theory.noise_moments(M, probe, mode, s2)
+            # empirical: many independent corruption draws, one frozen M
+            reps = 4000
+            g2 = torch.Generator(device=DEV).manual_seed(7)
+            X, yl, _ = corrupt(probe, reps, mode, s2, g2)
+            yh = apply_frozen(M.expand(reps, -1, -1), X, yl, SPEC.N)  # [reps, P]
+            emp_shift = (yh - yhat_clean).mean(dim=0)                 # [P]
+            emp_var = yh.var(dim=0, unbiased=True)
+
+            assert torch.allclose(emp_shift, shift[0], atol=0.02), \
+                (mode, s2, (emp_shift - shift[0]).abs().max())
+            rel = (emp_var - var[0]).abs() / var[0].clamp_min(1e-9)
+            assert rel.max() < 0.15, (mode, s2, rel.max())
+
+
+def test_theory_predicted_auc_is_a_probability_and_handles_below_half():
+    from icl_unlearning import theory
+    gen = torch.Generator(device=DEV).manual_seed(22)
+    probe = make_probe(SPEC, {"z1": 10, "z2": 10, "z3": 11}, "z3", 8, gen, DEV)
+    Mf = 0.3 * torch.randn(16, SPEC.D + 1, SPEC.D + 1, generator=gen)
+    Mo = 0.3 * torch.randn(16, SPEC.D + 1, SPEC.D + 1, generator=gen)
+    for mode in ("C1", "C2"):
+        for s2 in (0.0, 1.0, 100.0):
+            a = theory.predicted_auc(Mf, Mo, probe, mode, s2)
+            assert 0.0 <= a <= 1.0, (mode, s2, a)
+    # identical ensembles must predict exactly chance
+    a = theory.predicted_auc(Mf, Mf, probe, "C1", 1.0)
+    assert abs(a - 0.5) < 1e-6, a
+    # undecided modes have no closed form and must refuse rather than guess
+    try:
+        theory.predicted_auc(Mf, Mo, probe, "C3", 1.0)
+        assert False, "expected ValueError for C3"
+    except ValueError:
+        pass
+
+
 def test_collapse_by_param_aggregates_across_seed_combos():
     """
     plot_auc_vs_var.py's cross-seed aggregation: given rows tagged with

@@ -478,6 +478,56 @@ independent probes," which is the level of evidence worth writing down.
 
 ---
 
+## 4f. The three things added after the first clean run
+
+### (i) The tradeoff is the result, not the AUC curve alone
+
+`scripts/plot_tradeoff.py`. **AUC → 0.5 on its own is not a finding** — you can
+always reach chance by destroying the context. The claim worth making is
+whether a σ* exists where the attacker is defeated *and* ε is still small.
+
+The script marks two operating points per architecture — σ*(ε minimum) and
+σ*(AUC closest to chance) — and prints their ratio. Ratio ≈ 1 means a clean
+operating point exists. Ratio ≫ 1 means the family cannot remove without
+destroying, **and that ratio is the headline number.** Indicative signs from
+the pre-fix 100-shadow run: ε dipped to ~0.0008 around σ² ≈ 1.8 while AUC only
+reached chance out at σ² ≈ 30–100, where ε had blown up past 1.0. If that
+survives, the honest conclusion is that these corruption families trade
+removal against preservation rather than achieving both.
+
+### (ii) The oracle control settles the "I got AUC = 1" discrepancy
+
+`scripts/oracle_control_attack.py`. The classic forget-vs-retain loss attack
+computes AUC over the **example** axis with one model — a different estimand
+from this repo's AUC over the **model** axis at a fixed example. Only the
+second is a membership test.
+
+The per-example version is confounded here by construction: z3 has the flattest
+spectrum (PR 3.33 vs 1.90 / 2.38) and is therefore intrinsically hardest,
+so z3 examples carry higher error **whether or not the model ever saw them**.
+The script runs the identical attack against the oracle, which never trained on
+z3. Simulated at the config's actual participation ratios with a deliberately
+tiny genuine membership advantage baked in, the two are nearly
+indistinguishable — full 0.7185, oracle 0.7245. Essentially all of the apparent
+signal is difficulty. An AUC near 1 from that design is an artefact.
+
+### (iii) Closed-form overlay
+
+`src/icl_unlearning/theory.py`, emitted as `auc_theory_residual` and drawn as a
+thin dark line under the measured points. Implements the §0 moments and turns
+them into `AUC_p = Φ((μ₁−μ₀)/√(v₁+v₀))`, averaged over probe points, with the
+two variance sources (shadow spread + per-shadow noise draw) added.
+
+C1 and C2 only. C3 introduces an `η·ε` cross term that was never derived or
+verified here, and shipping an unverified formula beside two verified ones
+would defeat the purpose — it returns NaN and the plot skips it.
+
+**Where measurement and closed form diverge, one of them is wrong.** That is
+the point: this is a standing correctness check on the whole pipeline, not
+decoration.
+
+---
+
 ## 5. What was verified, and how
 
 `torch` could not be installed in the environment these changes were made in,
@@ -542,9 +592,12 @@ before trusting the refactor.** What *was* checked:
 - [x] ≥3 training seeds × ≥3 probe seeds — shipped defaults (§4e); confirm the
       cross-seed run actually completes and re-check whether the ATTN-S/ATTN-M
       gap survives it before calling that a finding
+- [x] closed-form overlay implemented (§4f iii) — **still to confirm it matches
+      within CI on real data**; that check is the whole value of the overlay
+- [x] removal/preservation tradeoff quantified (§4f i)
+- [x] oracle control for the per-example attack (§4f ii)
 - [ ] `forget` swept over all three groups
 - [ ] continuous PR knob implemented
-- [ ] closed-form overlay implemented and matching within CI
 - [ ] sigmoid fits for transition midpoint/slope, with CIs
 - [ ] collapse plot attempted
 - [ ] artifacts regenerated after the seeding fix (anything cached from before
