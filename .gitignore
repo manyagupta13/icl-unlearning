@@ -4,3 +4,7 @@ artifacts/*.pt
 artifacts/*.csv
 figures/*.pdf
 .pytest_cache/
+
+# generated configs are reproducible from make_configs.py; keep the script,
+# not the 16 output files
+configs/generated/

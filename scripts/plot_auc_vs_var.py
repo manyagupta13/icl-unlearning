@@ -84,11 +84,19 @@ VLINES = {
 
 
 def load(path):
+    """
+    Read the results CSV, coercing numeric columns to float and leaving the
+    rest as strings. Do NOT hardcode which columns are non-numeric: the sweep
+    now writes self-describing `cfg_*` columns, some of which are strings
+    (basis, optim, forget), and a blanket float() cast crashes on them.
+    """
     rows = list(csv.DictReader(open(path)))
     for r in rows:
         for k, v in r.items():
-            if k not in ("mode", "arch"):
+            try:
                 r[k] = float(v)
+            except (TypeError, ValueError):
+                pass                      # leave as string
     return rows
 
 

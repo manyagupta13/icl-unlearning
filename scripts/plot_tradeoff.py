@@ -47,11 +47,14 @@ ICUL_T = 1.0
 
 
 def load(path):
+    """Numeric columns -> float; `cfg_*` string columns stay strings."""
     rows = list(csv.DictReader(open(path)))
     for r in rows:
         for k, v in r.items():
-            if k not in ("mode", "arch"):
+            try:
                 r[k] = float(v)
+            except (TypeError, ValueError):
+                pass
     return rows
 
 

@@ -26,6 +26,68 @@ def participation_ratio(eigs: torch.Tensor) -> float:
     return float(eigs.sum() ** 2 / (eigs ** 2).sum())
 
 
+# ------------------------------------------------- parametric spectrum family
+#
+# Hand-written eigenvalue lists do not survive a change of D: to sweep D you
+# must decide what the eigenvalues become, and that choice silently determines
+# the answer. So spectra are generated from one continuous knob instead.
+#
+#     lambda_k  proportional to  exp(-gamma * k),   k = 0 .. D-1
+#
+# gamma = 0 gives a flat spectrum (PR = D, hardest); large gamma concentrates
+# all mass on one axis (PR -> 1, easiest). PR is monotone decreasing in gamma
+# at fixed D, so it can be inverted numerically -- which lets a group be
+# specified by the quantity that actually matters (its participation ratio)
+# rather than by D magic numbers.
+
+def exp_spectrum(D: int, gamma: float) -> list[float]:
+    """Trace-normalised exponential-decay spectrum, descending."""
+    k = torch.arange(D, dtype=torch.float64)
+    e = torch.exp(-float(gamma) * k)
+    return (e / e.sum()).tolist()
+
+
+def pr_of_gamma(D: int, gamma: float) -> float:
+    return participation_ratio(torch.tensor(exp_spectrum(D, gamma),
+                                            dtype=torch.float64))
+
+
+def gamma_for_pr(D: int, target_pr: float, tol: float = 1e-10,
+                 max_iter: int = 200) -> float:
+    """
+    Invert PR -> gamma by bisection. PR is continuous and strictly decreasing
+    in gamma on (0, inf), with PR(0) = D exactly, so a bracket always exists
+    for any target in (1, D).
+
+    Raises on out-of-range targets rather than silently clipping: asking for
+    PR >= D or PR <= 1 is a specification error, not something to paper over.
+    """
+    if not (1.0 < target_pr < D):
+        raise ValueError(
+            f"target PR must lie strictly in (1, D)=(1, {D}); got {target_pr}. "
+            f"PR=D means a perfectly flat spectrum (gamma=0), PR=1 means all "
+            f"mass on one axis (gamma=inf); neither is reachable exactly.")
+    lo, hi = 0.0, 1.0
+    while pr_of_gamma(D, hi) > target_pr:      # grow until PR drops below target
+        hi *= 2.0
+        if hi > 1e6:
+            raise RuntimeError(f"could not bracket PR={target_pr} at D={D}")
+    for _ in range(max_iter):
+        mid = 0.5 * (lo + hi)
+        if pr_of_gamma(D, mid) > target_pr:
+            lo = mid
+        else:
+            hi = mid
+        if hi - lo < tol:
+            break
+    return 0.5 * (lo + hi)
+
+
+def spectrum_for_pr(D: int, target_pr: float) -> list[float]:
+    """Trace-normalised spectrum at dimension D with the requested PR."""
+    return exp_spectrum(D, gamma_for_pr(D, target_pr))
+
+
 @dataclass
 class MixtureSpec:
     """Group spectra. `eigs[g]` is the sorted eigenvalue list for group g."""

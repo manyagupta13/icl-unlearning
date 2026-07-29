@@ -229,6 +229,52 @@ def test_mmd2_subsamples_instead_of_oom():
     assert val == val2
 
 
+def test_pr_inversion_is_exact_across_D():
+    """
+    spectrum_for_pr must hit the requested participation ratio at any D, or
+    the PR and N/D sweeps are measuring something other than what they claim.
+    """
+    from icl_unlearning.data import (gamma_for_pr, participation_ratio,
+                                     pr_of_gamma, spectrum_for_pr)
+    for D in (4, 8, 16, 32, 64):
+        for frac in (0.15, 0.35, 0.6, 0.85):
+            tgt = 1.0 + frac * (D - 1.0)
+            e = spectrum_for_pr(D, tgt)
+            assert len(e) == D
+            assert abs(sum(e) - 1.0) < 1e-9                # trace-normalised
+            got = participation_ratio(torch.tensor(e, dtype=torch.float64))
+            assert abs(got - tgt) < 1e-6, (D, tgt, got)
+
+    # PR must be strictly decreasing in gamma, else bisection is invalid
+    for D in (4, 16):
+        prs = [pr_of_gamma(D, g) for g in (0.0, 0.1, 0.3, 0.6, 1.0, 2.0, 5.0)]
+        assert all(a > b for a, b in zip(prs, prs[1:])), (D, prs)
+    assert abs(pr_of_gamma(4, 0.0) - 4.0) < 1e-12          # gamma=0 -> PR=D
+
+    # out-of-range must raise rather than silently clip
+    for D, t in ((4, 4.0), (4, 5.0), (4, 1.0), (4, 0.5)):
+        try:
+            gamma_for_pr(D, t)
+            assert False, f"expected ValueError for D={D} PR={t}"
+        except ValueError:
+            pass
+
+
+def test_parametric_spectra_reproduce_the_shipped_config_at_D4():
+    """
+    The fraction-based parameterisation used by the N/D sweep must reproduce
+    the hand-written D=4 spectra's participation ratios, or the new configs
+    are not comparable to the run already completed.
+    """
+    from icl_unlearning.data import spectrum_for_pr
+    shipped = {"z1": 1.9047619, "z2": 2.3809524, "z3": 3.3333333}
+    fracs = {"z1": 0.30, "z2": 0.46, "z3": 0.78}
+    for g, f in fracs.items():
+        pr = 1.0 + f * (4 - 1.0)
+        assert abs(pr - shipped[g]) < 0.05, (g, pr, shipped[g])
+        assert len(spectrum_for_pr(4, pr)) == 4
+
+
 def test_theory_moments_match_monte_carlo():
     """
     theory.noise_moments must reproduce the empirical mean shift and variance

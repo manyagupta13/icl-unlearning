@@ -528,6 +528,62 @@ decoration.
 
 ---
 
+## 4g. Parametric spectra, and the three follow-up experiments
+
+Hand-written eigenvalue lists do not survive a change of `D`: to sweep `D` you
+must decide what the eigenvalues become, and that choice silently determines
+the answer. `data.py` now generates spectra from one continuous knob,
+
+    lambda_k  proportional to  exp(-gamma k),   k = 0 .. D-1
+
+with `gamma_for_pr` inverting participation ratio -> gamma by bisection (PR is
+strictly decreasing in gamma, and `PR(gamma=0) = D` exactly). Groups are now
+specified by **the quantity that matters — their PR — at any D**. Verified
+exact to ~1e-9 for D = 4…64; out-of-range targets raise rather than clip.
+
+Sanity check that this is comparable to the completed run: at D=4 the
+fraction-based parameterisation yields PR = 1.90 / 2.38 / 3.34 against the
+shipped config's 1.90 / 2.38 / 3.33.
+
+`scripts/make_configs.py` emits 16 configs for three experiments:
+
+**rotation (`rot_*`) — run this first.** All groups share the *same* spectrum
+and differ only by random rotation. `Lambda_train` is then nearly identical for
+the full and oracle models, so the preconditioner mismatch that dominates the
+baseline AUC (§4d) largely cancels, and whatever AUC survives at sigma^2=0 is
+much closer to genuine per-example memorisation. Each comes with an
+`_identity` twin so "same spectrum" and "rotated" can be separated. **Until
+this runs, the headline result is confounded and should be stated as such.**
+
+**PR sweep (`pr_*`).** Retain groups pinned, forget group's PR swept over
+1.45–3.70 at fixed D. Turns three hand-picked groups into a curve of AUC
+against spectral geometry.
+
+**N/D sweep (`nd_*`).** The difficulty of in-context regression is set by
+context-length-to-dimension, not D alone. The completed run sits at
+N/D = 31/4 ≈ 7.75, a comfortable regime; the configs step down toward ≈1.94
+where the read-out must shrink hard. PR is held at a fixed *fraction* of D so
+anisotropy means the same thing at every D — otherwise D and spectral geometry
+are confounded and the sweep is uninterpretable.
+
+**The strong version of the N/D experiment:** you have a closed form (§4f iii)
+that matched measurement to 3e-4. Predict the D-dependence analytically,
+write it down, *then* run. "We can say what happens at any D and verified it"
+is a different claim from "we tried more settings."
+
+### Artifacts are now self-describing
+
+`results_{name}.csv` previously recorded nothing about the config, so it could
+not answer "what settings produced this?" — the first question anyone asks.
+The sweep now embeds `cfg_D`, `cfg_N`, `cfg_ND_ratio`, `cfg_basis`,
+`cfg_n_shadows`, `cfg_PR_*` and friends as constant columns, and writes the
+full config (every eigenvalue) to `results_{name}_config.json`. All three plot
+scripts had a blanket `float()` cast that crashes on the string columns
+(`basis`, `optim`, `forget`); they now coerce per-field and leave strings
+alone.
+
+---
+
 ## 5. What was verified, and how
 
 `torch` could not be installed in the environment these changes were made in,
@@ -596,8 +652,11 @@ before trusting the refactor.** What *was* checked:
       within CI on real data**; that check is the whole value of the overlay
 - [x] removal/preservation tradeoff quantified (§4f i)
 - [x] oracle control for the per-example attack (§4f ii)
+- [x] continuous PR knob implemented (§4g) — configs generated, not yet run
+- [ ] **rotation control run** — the one that decides what the headline means
+- [ ] PR sweep run
+- [ ] N/D sweep run, with the closed-form prediction written down first
 - [ ] `forget` swept over all three groups
-- [ ] continuous PR knob implemented
 - [ ] sigmoid fits for transition midpoint/slope, with CIs
 - [ ] collapse plot attempted
 - [ ] artifacts regenerated after the seeding fix (anything cached from before

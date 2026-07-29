@@ -16,6 +16,7 @@ with new grids.
 """
 import argparse
 import csv
+import json
 import pathlib
 import sys
 
@@ -80,12 +81,40 @@ def main():
                 r["probe_seed_idx"] = ps
             all_rows.extend(rows)
 
+    # Make the artifact self-describing. A results CSV that cannot answer
+    # "what settings produced this?" is not usable evidence six months later,
+    # and it is the first thing anyone reviewing the numbers will ask.
+    # Key scalars go in as constant columns so the CSV alone is sufficient;
+    # the full config (including every eigenvalue) goes in a sidecar.
+    meta = {
+        "cfg_D": d["D"], "cfg_N": d["N"],
+        "cfg_ND_ratio": round(d["N"] / d["D"], 6),
+        "cfg_basis": d["basis"], "cfg_forget": d["forget"],
+        "cfg_n_shadows": tr["n_shadows"], "cfg_steps": tr["steps"],
+        "cfg_optim": tr["optim"], "cfg_lr": tr["lr"],
+        "cfg_probe_P": pr["P"],
+        "cfg_n_train_seeds": n_train_seeds,
+        "cfg_n_probe_seeds": n_probe_seeds,
+    }
+    for g in d["groups"]:
+        meta[f"cfg_PR_{g}"] = round(spec.pr(g), 6)
+    for r in all_rows:
+        r.update(meta)
+
     path = adir / f"results_{name}.csv"
     with open(path, "w", newline="") as f:
         w = csv.DictWriter(f, fieldnames=list(all_rows[0].keys()))
         w.writeheader()
         w.writerows(all_rows)
+
+    side = adir / f"results_{name}_config.json"
+    with open(side, "w") as f:
+        json.dump({"config": cfg, "participation_ratios":
+                   {g: spec.pr(g) for g in d["groups"]}}, f, indent=2)
+
     print(f"\n{len(all_rows)} rows -> {path}")
+    print(f"full config    -> {side}")
+    print("  " + "  ".join(f"{k}={v}" for k, v in list(meta.items())[:6]))
 
 
 if __name__ == "__main__":

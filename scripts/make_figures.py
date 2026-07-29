@@ -30,11 +30,14 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "src"))
 
 
 def load(path):
+    """Numeric columns -> float; `cfg_*` string columns stay strings."""
     rows = list(csv.DictReader(open(path)))
     for r in rows:
         for k, v in r.items():
-            if k not in ("mode", "arch"):
+            try:
                 r[k] = float(v)
+            except (TypeError, ValueError):
+                pass
     return rows
 
 
