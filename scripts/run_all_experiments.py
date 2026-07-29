@@ -148,29 +148,23 @@ def run(cmd: list[str], log: pathlib.Path) -> tuple[int, str]:
 
 def null_check(cfg: dict) -> tuple[bool, str]:
     """
-    PREDICTIONS.md P8. For a null config the sigma^2=0 AUC must be consistent
-    with chance. Reads the sweep CSV and checks the bootstrap CI at param=0
-    covers 0.5 for every arch.
+    PREDICTIONS.md P8, via scripts/check_null.py.
+
+    Delegated rather than inlined, because the obvious inline version is wrong.
+    An earlier revision here required every per-row bootstrap CI at param=0 to
+    cover 0.5. That failed on correct data for three reasons: the six modes at
+    param=0 are the SAME measurement (identity edit) counted six times; 108
+    simultaneous 95% intervals all covering has probability 0.95^108 = 0.4%
+    under a perfect null; and the 9 (train, probe) combos reuse 3 ensembles so
+    they are not independent. See check_null.py's docstring.
     """
     name = cfg["name"]
     path = ROOT / cfg["paths"]["artifacts"] / f"results_{name}.csv"
     if not path.exists():
         return False, "results CSV missing"
-    bad = []
-    for r in csv.DictReader(open(path)):
-        if r["mode"] != "none" and float(r["param"]) != 0.0:
-            continue
-        try:
-            lo = float(r["auc_matched_residual_lo"])
-            hi = float(r["auc_matched_residual_hi"])
-        except (KeyError, ValueError):
-            continue
-        if not (lo <= 0.5 <= hi):
-            bad.append(f"{r['arch']}/{r['mode']}: CI [{lo:.3f},{hi:.3f})"
-                       f" excludes 0.5")
-    if bad:
-        return False, "; ".join(bad[:6])
-    return True, "all sigma^2=0 CIs cover chance"
+    sys.path.insert(0, str(ROOT / "scripts"))
+    import check_null                                   # noqa: PLC0415
+    return check_null.check(path, verbose=True)
 
 
 def stage_done(cfg: dict, stage: str) -> bool:

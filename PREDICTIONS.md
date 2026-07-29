@@ -225,13 +225,37 @@ spectrum *and* the same (identity) basis — they are literally the same
 distribution. `full` trains on {z1,z2,z3}, `oracle` on {z1,z2}, but those are
 indistinguishable data streams. So:
 
-> **AUC must sit at chance across the entire grid, within CI.**
+> **AUC must sit at chance.**
 
 If it does not, something is coupling the two hypotheses — the first place to
 look is `stable_offset(arch, hyp)` in `train_ensembles.py` and the shared
 `torch.manual_seed(seed)` inside `train_ensemble`. **Run this pair first and do
 not interpret any other config until it passes.** NOTES §6 already puts the
 rotation pair first; this is the sharper reason why.
+
+**How to test it — this matters, and the obvious version is wrong.** The first
+implementation required every per-row bootstrap CI at `param = 0` to cover 0.5,
+and it failed on correct data. Three compounding errors:
+
+- at `param = 0` all six corruption modes are the *identity* edit, so
+  `none/C1/C2/C3/flip/whiten` are one measurement recorded six times;
+- 9 seed combos x 2 archs x 6 duplicated modes = 108 simultaneous 95%
+  intervals, all required to cover — probability `0.95^108 = 0.4%` under a
+  perfect null;
+- the 9 `(train, probe)` combos reuse 3 trained ensembles, so they are not 9
+  independent draws and a `df = 8` test overstates significance.
+
+`scripts/check_null.py` does it properly: deduplicate to `mode = none`, average
+over probe seeds *within* each training seed, t-test the resulting cluster
+means against 0.5 at `df = n_train_seeds - 1`, and additionally require
+`|mean - 0.5| <= 0.02` as a hard bound (with 3 seeds the t-test has almost no
+power, so a gross failure could otherwise slip through).
+
+**Measured, 2026-07-29 run:** ATTN-M `0.5026 +0.0026`, ATTN-S `0.5040 +0.0040`;
+clustered `t = 2.41` and `2.31` against a `df = 2` critical value of `9.93`.
+**P8 PASSES.** Both deviations are positive, which is worth a sentence and more
+training seeds eventually, but both sit far inside the 0.01–0.02 noise floor
+NOTES §5 measured directly.
 
 **P9 (`rot_mid` / `rot_flat`).** Same spectrum, different random rotations.
 `Lambda_train` for full and oracle are both near-isotropic averages, so the
