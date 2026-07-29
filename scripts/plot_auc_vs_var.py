@@ -243,7 +243,8 @@ def main():
                  + FOOTER_ENERGY[mode],
                  ha="right", va="bottom", fontsize=6.5, color="0.45")
         for ext in ("pdf", "png"):
-            fig.savefig(fdir / f"auc_{mode}.{ext}", dpi=180, bbox_inches="tight")
+            fig.savefig(fdir / f"auc_{mode}_{name}.{ext}", dpi=180,
+                        bbox_inches="tight")
         plt.close(fig)
 
         # ---------------------------------------------------- eps vs Var(eps)
@@ -266,10 +267,12 @@ def main():
         ax2.margins(y=0.12)
         fig2.tight_layout()
         for ext in ("pdf", "png"):
-            fig2.savefig(fdir / f"eps_{mode}.{ext}", dpi=180, bbox_inches="tight")
+            fig2.savefig(fdir / f"eps_{mode}_{name}.{ext}", dpi=180,
+                         bbox_inches="tight")
         plt.close(fig2)
 
-        print(f"  {mode}: figures/auc_{mode}.pdf  figures/eps_{mode}.pdf")
+        print(f"  {mode}: figures/auc_{mode}_{name}.pdf  "
+              f"figures/eps_{mode}_{name}.pdf")
 
     print(f"\nwritten to {fdir}/")
 

@@ -3,6 +3,8 @@ __pycache__/
 artifacts/*.pt
 artifacts/*.csv
 figures/*.pdf
+figures/*.png
+artifacts/logs/
 .pytest_cache/
 
 # generated configs are reproducible from make_configs.py; keep the script,

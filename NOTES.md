@@ -653,6 +653,19 @@ before trusting the refactor.** What *was* checked:
 - [x] removal/preservation tradeoff quantified (§4f i)
 - [x] oracle control for the per-example attack (§4f ii)
 - [x] continuous PR knob implemented (§4g) — configs generated, not yet run
+- [x] **closed-form D-dependence written down BEFORE the runs** — `PREDICTIONS.md`,
+      dated 2026-07-29, 12 numbered predictions with a scoring table in §8.
+      Spectral asymptotics verified in `scripts/check_spectral_scaling.py`,
+      per-config coefficients in `scripts/prereg_table.py`. The headline is
+      parameter-free: σ²\*(C1)/σ²\*(C2) = tr(Λ_f⁻¹)/D = 4.9 / 10.2 / 20.9 / 42.3
+      at D = 4 / 8 / 16 / 32.
+- [x] batch runner (`scripts/run_all_experiments.py`) + Kaggle notebook.
+      Resumable, costs the batch before running it (~63x one D=4 run), and
+      **gates on the null control**: `rot_*_identity` gives all three groups the
+      same spectrum AND the same basis, so they are the same distribution and
+      full/oracle train on indistinguishable data — its AUC must sit at chance.
+      That was not previously identified as a null; it is the cheapest
+      end-to-end correctness test in the repo and it now runs first.
 - [ ] **rotation control run** — the one that decides what the headline means
 - [ ] PR sweep run
 - [ ] N/D sweep run, with the closed-form prediction written down first

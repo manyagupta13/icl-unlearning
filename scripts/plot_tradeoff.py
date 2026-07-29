@@ -157,7 +157,8 @@ def main():
                  "dash-dot: AUC closest to chance", ha="right", va="bottom",
                  fontsize=6.5, color="0.45")
         for ext in ("pdf", "png"):
-            fig.savefig(fdir / f"tradeoff_{mode}.{ext}", dpi=180, bbox_inches="tight")
+            fig.savefig(fdir / f"tradeoff_{mode}_{name}.{ext}", dpi=180,
+                        bbox_inches="tight")
         plt.close(fig)
 
         # ------------------------------------------------ alpha-eps frontier
@@ -179,7 +180,8 @@ def main():
         axf.legend(fontsize=8, frameon=False)
         fig2.tight_layout()
         for ext in ("pdf", "png"):
-            fig2.savefig(fdir / f"frontier_{mode}.{ext}", dpi=180, bbox_inches="tight")
+            fig2.savefig(fdir / f"frontier_{mode}_{name}.{ext}", dpi=180,
+                         bbox_inches="tight")
         plt.close(fig2)
 
     print("\n'eps ratio' = how much preservation you pay to reach chance-level AUC.")
