@@ -60,7 +60,8 @@ def main():
     print(f"device={dev}  config={name}  n_train_seeds={n_train_seeds}")
 
     spec = MixtureSpec(names=d["groups"], eigs=d["eigs"], D=d["D"], N=d["N"],
-                       basis=d["basis"], seed=d["seed"])
+                       basis=d["basis"], seed=d["seed"],
+                       task=d.get("task", "regression"))
     for g in spec.names:
         print(f"  {g}: PR = {spec.pr(g):.2f}")
 

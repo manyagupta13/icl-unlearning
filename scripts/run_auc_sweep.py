@@ -45,7 +45,8 @@ def main():
          f"-> {n_train_seeds * n_probe_seeds} combinations")
 
     spec = MixtureSpec(names=d["groups"], eigs=d["eigs"], D=d["D"], N=d["N"],
-                       basis=d["basis"], seed=d["seed"])
+                       basis=d["basis"], seed=d["seed"],
+                       task=d.get("task", "regression"))
     retain = [g for g in d["groups"] if g != d["forget"]]
     adir = pathlib.Path(cfg["paths"]["artifacts"])
 

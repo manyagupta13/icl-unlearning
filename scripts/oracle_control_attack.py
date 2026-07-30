@@ -63,7 +63,8 @@ def main():
     retain = [g for g in d["groups"] if g != forget]
 
     spec = MixtureSpec(names=d["groups"], eigs=d["eigs"], D=d["D"], N=d["N"],
-                       basis=d["basis"], seed=d["seed"])
+                       basis=d["basis"], seed=d["seed"],
+                       task=d.get("task", "regression"))
     print(f"forget={forget} (PR={spec.pr(forget):.2f})   "
           f"retain={retain} (PR=" +
           ", ".join(f"{spec.pr(g):.2f}" for g in retain) + ")")

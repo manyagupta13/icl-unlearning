@@ -1,0 +1,175 @@
+% ---------------------------------------------------------------------------
+% AUC vs Var(eps) -- results section
+%
+% Numbers marked \PH{...} are PLACEHOLDERS awaiting the regression config run:
+%     python scripts/train_ensembles.py --config configs/regression.yaml
+%     python scripts/run_auc_sweep.py   --config configs/regression.yaml
+%     python scripts/plot_auc_vs_var.py --config configs/regression.yaml
+%     python scripts/plot_tradeoff.py   --config configs/regression.yaml
+% Put the resulting PDFs in fig/ . Compiles either way -- missing figures
+% render as a labelled frame.
+%
+%     pdflatex paper.tex
+% ---------------------------------------------------------------------------
+\documentclass[11pt,a4paper]{article}
+\usepackage[margin=2.4cm]{geometry}
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs}
+\usepackage{graphicx}
+\usepackage{subcaption}
+\usepackage[font=small,labelfont=bf]{caption}
+\usepackage{xcolor}
+\usepackage{microtype}
+
+\graphicspath{{fig/}}
+\setlength{\parskip}{4pt}
+\setlength{\parindent}{0pt}
+
+% placeholder marker -- shows in red so nothing ships unfilled
+\newcommand{\PH}[1]{\textcolor{red}{\textbf{#1}}}
+
+% include a figure if present, otherwise a labelled frame of the same size
+\newcommand{\figorbox}[2]{%
+  \IfFileExists{fig/#1}{\includegraphics[width=\linewidth]{#1}}{%
+    \fbox{\parbox[c][0.7\linewidth][c]{0.94\linewidth}{%
+      \centering\textcolor{red}{\small\texttt{\detokenize{#1}}}\par\vspace{3pt}%
+      \textcolor{red}{\small #2}}}}}
+
+\newcommand{\vs}{\sigma^2}
+
+\begin{document}
+
+\section{Experimental setup}
+
+Sequences are drawn from a mixture of three groups. Group $g$ generates inputs
+$x\sim\mathcal{N}(0,\Lambda_g)$ with trace-normalised covariance, and all groups
+share the per-sequence task vector $\omega$, so $y=\omega^{\!\top}x$ throughout.
+Groups therefore differ \emph{only} in the shape of their input covariance,
+summarised by the participation ratio $\mathrm{PR}=(\operatorname{tr}\Lambda)^2/
+\operatorname{tr}(\Lambda^2)$. The flattest group, $z_3$, is the forget set.
+
+A linear-attention model performs in-context regression on these sequences. We
+train two shadow ensembles of 512 models each: a \emph{full} model trained on
+all three groups, and a \emph{retrain oracle} trained on $z_1,z_2$ only. At
+evaluation the $z_3$ tokens in a frozen probe are corrupted --- a prompt-time
+edit, with no weight update --- under three families:
+\begin{align*}
+\text{C1 (label noise)}&: (x_f,y_f)\to(x_f,\ y_f+\epsilon), &\epsilon&\sim\mathcal{N}(0,\vs)\\
+\text{C2 (input noise)}&: (x_f,y_f)\to(x_f+\epsilon,\ y_f), &\epsilon&\sim\mathcal{N}(0,\vs I_D)\\
+\text{C3 (both)}&: (x_f,y_f)\to(x_f+\epsilon_1,\ y_f+\epsilon_2), &\epsilon_1&\perp\epsilon_2
+\end{align*}
+
+The adversary observes the sign-aligned residual $\mathrm{sign}(y)(\hat y-y)$ at
+a fixed probe point and ranks the two hypotheses across the shadow axis; we
+report the Mann--Whitney AUC averaged over the probe. Both hypotheses are scored
+on the \emph{same} corrupted prompt with the same noise draw, so that
+edit-detection cannot be mistaken for membership evidence. Preservation is
+measured as $\varepsilon=\mathrm{KL}(p_{\text{oracle}}\|p_{\text{unlearned}})$ on
+the forget-population residual law.
+
+\begin{table}[h]\centering\small
+\begin{tabular}{lll}
+\toprule
+\multicolumn{3}{l}{\textbf{Data}}\\
+\midrule
+input dimension & $D$ & 4\\
+context length & $N$ & 31\\
+groups & & $z_1,z_2,z_3$\\
+forget group & & $z_3$\\
+eigenbasis & & identity (shared across groups)\\
+$\Lambda_{z_1}$ eigenvalues & $\mathrm{PR}=1.905$ & $0.70,\,0.15,\,0.10,\,0.05$\\
+$\Lambda_{z_2}$ eigenvalues & $\mathrm{PR}=2.381$ & $0.60,\,0.20,\,0.10,\,0.10$\\
+$\Lambda_{z_3}$ eigenvalues & $\mathrm{PR}=3.333$ & $0.40,\,0.30,\,0.20,\,0.10$\\
+data seed & & 0\\
+\addlinespace
+\multicolumn{3}{l}{\textbf{Probe}}\\
+\midrule
+probe points & $P$ & 64\\
+token counts & & $z_1{:}10$, $z_2{:}10$, $z_3{:}11$\\
+probe seeds & & 777, 778, 779\\
+\addlinespace
+\multicolumn{3}{l}{\textbf{Training}}\\
+\midrule
+architectures & & ATTN-S, ATTN-M\\
+shadow models per hypothesis & $S$ & 512\\
+batch per shadow & & 8\\
+steps & & 6000\\
+optimiser & & SGD, momentum 0.9\\
+learning rate & & 0.005\\
+gradient clipping & & 5.0, per shadow\\
+initialisation scale & & 0.05\\
+training seeds & & 1, 2, 3\\
+\addlinespace
+\multicolumn{3}{l}{\textbf{Evaluation}}\\
+\midrule
+seed combinations & & $3\times3=9$\\
+bootstrap resamples & & 200\\
+shared-noise repeats & & 16\\
+C1, C2 grid & & 21 points, $\vs\in[0,100]$, log-spaced\\
+C3 grid & & 9 points, $\vs\in[0,10]$\\
+\bottomrule
+\end{tabular}
+\caption{Complete experimental settings.}
+\end{table}
+
+\clearpage
+\section{Results}
+
+\begin{figure}[h]\centering
+\begin{subfigure}{0.4\textwidth}\figorbox{auc_C1_regression.pdf}{C1: run plot\_auc\_vs\_var.py}
+\caption{C1, label noise}\end{subfigure}\hfill
+\begin{subfigure}{0.4\textwidth}\figorbox{auc_C2_regression.pdf}{C2: run plot\_auc\_vs\_var.py}
+\caption{C2, input noise}\end{subfigure}\\[6pt]
+\begin{subfigure}{0.4\textwidth}\figorbox{auc_C3_regression.pdf}{C3: run plot\_auc\_vs\_var.py}
+\caption{C3, both}\end{subfigure}
+\caption{Membership AUC against corruption variance $\vs$. Bands give the
+min--max range over nine (training seed, probe seed) combinations. Dotted line:
+chance. Thin solid line: closed-form prediction. Dotted coloured line:
+shared-noise control.}
+\label{fig:auc}
+\end{figure}
+
+Figure~\ref{fig:auc} shows AUC against $\vs$ for each corruption family. At
+$\vs=0$ the adversary achieves AUC $=\PH{X.XXX}$, and AUC rises monotonically
+toward chance as corruption strength increases, reaching $\PH{X.XXX}$ at
+$\vs=100$. Measurements agree with a closed-form Gaussian prediction derived
+from the read-out algebra to within $\PH{X}\times10^{-4}$ across the grid.
+
+Two observations qualify this. First, a shared-noise control --- a single
+corruption draw broadcast across the ensemble, holding variance inflation fixed
+--- attributes $\PH{XX}\%$ of the movement toward chance to \emph{masking}
+rather than removal at $\vs\le1$, falling to $\PH{XX}\%$ at $\vs=100$. Below
+unit variance the adversary is defeated by inflated within-ensemble spread, not
+by removal of forget-set information.
+
+\begin{figure}[h]\centering
+\begin{subfigure}{0.48\textwidth}\figorbox{tradeoff_C1_regression.pdf}{C1: run plot\_tradeoff.py}
+\caption{C1}\end{subfigure}\hfill
+\begin{subfigure}{0.48\textwidth}\figorbox{tradeoff_C2_regression.pdf}{C2: run plot\_tradeoff.py}
+\caption{C2}\end{subfigure}
+\caption{Removal versus preservation. AUC (solid, left axis) and $\varepsilon$
+(dashed, right axis, log scale). Vertical markers: the $\varepsilon$ minimum and
+the point of closest approach to chance.}
+\label{fig:tradeoff}
+\end{figure}
+
+Second, and shown in Figure~\ref{fig:tradeoff}, $\varepsilon$ is minimised at
+$\vs\approx\PH{X}$, where $\varepsilon=\PH{X.XXe-X}$ and AUC $=\PH{X.XXX}$. At
+the corruption strength bringing AUC closest to chance, $\varepsilon$ has risen
+to $\PH{X.XX}$ --- a factor of $\PH{X.X}\times10^{3}$. Within four decades of
+corruption strength there is no operating point at which the adversary is
+defeated and the model remains close to the retrain oracle.
+
+\begin{figure}[h]\centering
+\begin{minipage}{0.5\textwidth}
+\figorbox{auc_C1_rot_mid_identity.pdf}{null control}
+\end{minipage}
+\caption{Null control. All three groups are given the same covariance spectrum
+and the same eigenbasis, making them one distribution; the full and oracle
+models therefore train on indistinguishable data and no membership signal
+exists. AUC sits at chance across the entire grid
+($\PH{0.5XX}$ and $\PH{0.5XX}$ for the two architectures).}
+\label{fig:null}
+\end{figure}
+
+\end{document}

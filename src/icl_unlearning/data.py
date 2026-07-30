@@ -97,6 +97,17 @@ class MixtureSpec:
     N: int
     basis: str = "identity"          # "identity" | "random"
     seed: int = 0
+    # "regression"     y = beta . x                (continuous targets)
+    # "classification" y = sign(beta . x) in {-1,+1}
+    #
+    # Only the target map changes. The model is unchanged: it still emits a
+    # continuous yhat under squared loss, so a shadow is still one matrix and
+    # the ensemble economics are identical. Two things do change and both are
+    # improvements: a label FLIP becomes the literal operation it is named
+    # after rather than the negation of a continuous value, and sum_i y_i^2 =
+    # n_f EXACTLY, which removes the only sampling noise from C2's closed-form
+    # variance (see theory.py).
+    task: str = "regression"
     _rot: dict[str, torch.Tensor] = field(default_factory=dict, repr=False)
 
     def __post_init__(self):
@@ -120,6 +131,15 @@ class MixtureSpec:
 
     def pr(self, g: str) -> float:
         return participation_ratio(trace_normalise(torch.tensor(self.eigs[g])))
+
+    def targets(self, raw: torch.Tensor) -> torch.Tensor:
+        """Map beta . x to the task's targets. sign(0) is sent to +1."""
+        if self.task == "regression":
+            return raw
+        if self.task == "classification":
+            s = torch.sign(raw)
+            return torch.where(s == 0, torch.ones_like(s), s)
+        raise ValueError(f"unknown task {self.task!r}")
 
 
 # ------------------------------------------------------------------- sequences
@@ -146,7 +166,7 @@ def make_sequences(spec: MixtureSpec, groups: list[str], S: int, B: int,
     x = torch.einsum("sbnd,sbed->sbne", z, Lh)
 
     beta = torch.randn(S, B, D, generator=gen, device=device, dtype=dtype)
-    y = torch.einsum("sbnd,sbd->sbn", x, beta)
+    y = spec.targets(torch.einsum("sbnd,sbd->sbn", x, beta))
 
     yq = y[:, :, -1].clone()
     ylab = y.clone()
@@ -193,7 +213,7 @@ def make_probe(spec: MixtureSpec, counts: dict[str, int], forget: str,
     x = torch.cat(xs, dim=1)                                    # [P, N+1, D]
 
     beta = torch.randn(P, D, generator=gen, device=device, dtype=dtype)
-    y = torch.einsum("pnd,pd->pn", x, beta)
+    y = spec.targets(torch.einsum("pnd,pd->pn", x, beta))
 
     start = N - counts[forget]
     return Probe(x=x, y=y, forget_slice=slice(start, N), P=P)
