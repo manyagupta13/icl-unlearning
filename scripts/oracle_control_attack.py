@@ -43,7 +43,7 @@ import yaml
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "src"))
 
 from icl_unlearning import audit                            # noqa: E402
-from icl_unlearning.data import MixtureSpec, make_sequences  # noqa: E402
+from icl_unlearning.data import build_spec, make_sequences  # noqa: E402
 from icl_unlearning.models import apply_frozen              # noqa: E402
 
 
@@ -62,9 +62,7 @@ def main():
     forget = d["forget"]
     retain = [g for g in d["groups"] if g != forget]
 
-    spec = MixtureSpec(names=d["groups"], eigs=d["eigs"], D=d["D"], N=d["N"],
-                       basis=d["basis"], seed=d["seed"],
-                       task=d.get("task", "regression"))
+    spec = build_spec(d)
     print(f"forget={forget} (PR={spec.pr(forget):.2f})   "
           f"retain={retain} (PR=" +
           ", ".join(f"{spec.pr(g):.2f}" for g in retain) + ")")

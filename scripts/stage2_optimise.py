@@ -33,7 +33,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "src"))
 
 from icl_unlearning import audit                                # noqa: E402
 from icl_unlearning.corrupt import corrupt                      # noqa: E402
-from icl_unlearning.data import MixtureSpec, make_probe         # noqa: E402
+from icl_unlearning.data import build_spec, make_probe         # noqa: E402
 from icl_unlearning.models import apply_frozen                  # noqa: E402
 from icl_unlearning.policy import (ConditionalBernoulli,        # noqa: E402
                                    ScalarBernoulli, objective_value,
@@ -83,9 +83,7 @@ def main():
     dev = args.device
     adir = pathlib.Path(cfg["paths"]["artifacts"])
 
-    spec = MixtureSpec(names=d["groups"], eigs=d["eigs"], D=d["D"], N=d["N"],
-                       basis=d["basis"], seed=d["seed"],
-                       task=d.get("task", "regression"))
+    spec = build_spec(d)
     gen = torch.Generator(device=dev).manual_seed(pr["seed"] + args.probe_seed_idx)
     probe = make_probe(spec, pr["counts"], d["forget"], pr["P"], gen, dev)
 

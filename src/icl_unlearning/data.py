@@ -141,6 +141,101 @@ class MixtureSpec:
             return torch.where(s == 0, torch.ones_like(s), s)
         raise ValueError(f"unknown task {self.task!r}")
 
+    def sample(self, g: str, shape, gen, device, dtype) -> torch.Tensor:
+        """Draw inputs from group `g`. Returns [*shape, D]."""
+        z = torch.randn(*shape, self.D, generator=gen, device=device, dtype=dtype)
+        return z @ self.sqrt_cov(g, device, dtype).T
+
+
+# --------------------------------------------------------------- MNIST variant
+
+@dataclass
+class MnistSpec:
+    """
+    Same interface as MixtureSpec, but inputs are real MNIST images rather than
+    Gaussian draws. Groups are digit classes; the forget group is a digit.
+
+    Design constraint (the one that decides whether this measures anything):
+    the per-sequence task vector beta is SHARED across groups, exactly as in the
+    synthetic setup, so the retain tokens remain informative about a forget-group
+    query. If instead each class carried its own label rule, corrupting the
+    forget tokens would delete the answer outright and both hypotheses would
+    collapse to chance together -- a clean curve measuring nothing.
+
+    So digit classes supply only the INPUT DISTRIBUTION; targets are
+    y = sign(beta . x) with beta fresh per sequence.
+
+    Centering. `center="class"` subtracts each digit's own mean, which keeps
+    spectral geometry the sole axis of variation and matches MixtureSpec's
+    "groups share mean 0" contract. `center="pooled"` keeps the class means,
+    which preserves what actually distinguishes digits but introduces a mean
+    channel that theory.py's moments do not model. Run scripts/mnist_pr_probe.py
+    to see the size of that channel before choosing.
+    """
+    names: list[str]                 # e.g. ["d1", "d3", "d8"]
+    digits: list[int]                # the digit each group corresponds to
+    D: int
+    N: int
+    forget: str = ""
+    task: str = "classification"
+    center: str = "class"            # "class" | "pooled"
+    seed: int = 0
+    banks: dict = field(default_factory=dict, repr=False)   # group -> [n_g, D]
+
+    def __post_init__(self):
+        assert len(self.names) == len(self.digits)
+        if not self.banks:
+            self._build()
+
+    def _build(self):
+        from .mnist import load_feature_banks
+        self.banks = load_feature_banks(self.digits, self.names, self.D,
+                                        self.center, self.seed)
+
+    def sqrt_cov(self, g, device, dtype):
+        """Empirical covariance square root -- used only by the whiten arm."""
+        b = self.banks[g].to(device=device, dtype=dtype)
+        c = (b.T @ b) / (b.shape[0] - 1)
+        e, V = torch.linalg.eigh(c.double())
+        return (V @ torch.diag(e.clamp_min(1e-12).sqrt()) @ V.T).to(dtype)
+
+    def pr(self, g: str) -> float:
+        b = self.banks[g]
+        c = (b.T @ b) / (b.shape[0] - 1)
+        e = torch.linalg.eigvalsh(c).clamp_min(0)
+        return float(e.sum() ** 2 / (e ** 2).sum())
+
+    def targets(self, raw: torch.Tensor) -> torch.Tensor:
+        return MixtureSpec.targets(self, raw)
+
+    def sample(self, g: str, shape, gen, device, dtype) -> torch.Tensor:
+        """Draw real images (as PCA features) with replacement from group `g`."""
+        b = self.banks[g].to(device=device, dtype=dtype)
+        n = int(torch.tensor(shape).prod())
+        idx = torch.randint(0, b.shape[0], (n,), generator=gen, device=device)
+        return b[idx].reshape(*shape, self.D)
+
+
+# ---------------------------------------------------------------- spec factory
+
+def build_spec(cfg_data: dict):
+    """
+    Build the right spec from a config's `data` block. Keeps every driver
+    script agnostic about whether the inputs are Gaussian or MNIST.
+    """
+    if cfg_data.get("source", "gaussian") == "mnist":
+        return MnistSpec(names=cfg_data["groups"], digits=cfg_data["digits"],
+                         D=cfg_data["D"], N=cfg_data["N"],
+                         forget=cfg_data.get("forget", ""),
+                         task=cfg_data.get("task", "classification"),
+                         center=cfg_data.get("center", "class"),
+                         seed=cfg_data.get("seed", 0))
+    return MixtureSpec(names=cfg_data["groups"], eigs=cfg_data["eigs"],
+                       D=cfg_data["D"], N=cfg_data["N"],
+                       basis=cfg_data.get("basis", "identity"),
+                       seed=cfg_data.get("seed", 0),
+                       task=cfg_data.get("task", "regression"))
+
 
 # ------------------------------------------------------------------- sequences
 
@@ -159,11 +254,14 @@ def make_sequences(spec: MixtureSpec, groups: list[str], S: int, B: int,
     G = len(groups)
 
     gid = torch.randint(0, G, (S, B), generator=gen, device=device)
-    half = torch.stack([spec.sqrt_cov(g, device, dtype) for g in groups])   # [G,D,D]
-    Lh = half[gid]                                                         # [S,B,D,D]
 
-    z = torch.randn(S, B, N + 1, D, generator=gen, device=device, dtype=dtype)
-    x = torch.einsum("sbnd,sbed->sbne", z, Lh)
+    # Draw every group's inputs, then select per (shadow, batch) by gid. Going
+    # through spec.sample keeps this identical for Gaussian and MNIST specs;
+    # the latter cannot be expressed as z @ L^{1/2}.
+    per_group = torch.stack([spec.sample(g, (S, B, N + 1), gen, device, dtype)
+                             for g in groups])                  # [G,S,B,N+1,D]
+    x = per_group.gather(
+        0, gid[None, :, :, None, None].expand(1, S, B, N + 1, D)).squeeze(0)
 
     beta = torch.randn(S, B, D, generator=gen, device=device, dtype=dtype)
     y = spec.targets(torch.einsum("sbnd,sbd->sbn", x, beta))
@@ -202,14 +300,9 @@ def make_probe(spec: MixtureSpec, counts: dict[str, int], forget: str,
     assert sum(counts.values()) == N, f"context counts must sum to N={N}"
 
     order = [g for g in spec.names if g != forget] + [forget]
-    xs = []
-    for g in order:
-        n = counts[g]
-        z = torch.randn(P, n, D, generator=gen, device=device, dtype=dtype)
-        xs.append(z @ spec.sqrt_cov(g, device, dtype).T)
+    xs = [spec.sample(g, (P, counts[g]), gen, device, dtype) for g in order]
     # query token from the forget group
-    zq = torch.randn(P, 1, D, generator=gen, device=device, dtype=dtype)
-    xs.append(zq @ spec.sqrt_cov(forget, device, dtype).T)
+    xs.append(spec.sample(forget, (P, 1), gen, device, dtype))
     x = torch.cat(xs, dim=1)                                    # [P, N+1, D]
 
     beta = torch.randn(P, D, generator=gen, device=device, dtype=dtype)

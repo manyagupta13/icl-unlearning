@@ -25,7 +25,7 @@ import yaml
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "src"))
 
-from icl_unlearning.data import MixtureSpec, make_probe    # noqa: E402
+from icl_unlearning.data import build_spec, make_probe    # noqa: E402
 from icl_unlearning.sweep import run_sweep                 # noqa: E402
 
 
@@ -44,9 +44,7 @@ def main():
     print(f"n_train_seeds={n_train_seeds}  n_probe_seeds={n_probe_seeds}  "
          f"-> {n_train_seeds * n_probe_seeds} combinations")
 
-    spec = MixtureSpec(names=d["groups"], eigs=d["eigs"], D=d["D"], N=d["N"],
-                       basis=d["basis"], seed=d["seed"],
-                       task=d.get("task", "regression"))
+    spec = build_spec(d)
     retain = [g for g in d["groups"] if g != d["forget"]]
     adir = pathlib.Path(cfg["paths"]["artifacts"])
 
@@ -66,10 +64,11 @@ def main():
             gen = torch.Generator(device=dev).manual_seed(probe_seed)
             probe = make_probe(spec, pr["counts"], d["forget"], pr["P"], gen, dev)
 
-            # empirical retain-group inputs for the whiten arm (never the true Lambda)
+            # empirical retain-group inputs for the whiten arm (never the true
+            # Lambda). Goes through spec.sample so MNIST draws real images.
             retain_x = torch.cat([
-                torch.randn(2048, spec.D, generator=gen, device=dev)
-                @ spec.sqrt_cov(g, dev, torch.float32).T for g in retain])
+                spec.sample(g, (2048,), gen, dev, torch.float32)
+                for g in retain])
 
             rows = run_sweep(spec, probe, ensembles, sw["grids"],
                              seed=sw["seed"] + 1_000_000 * ts + 1_000 * ps,

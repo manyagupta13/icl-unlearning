@@ -31,7 +31,7 @@ import yaml
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "src"))
 
-from icl_unlearning.data import MixtureSpec               # noqa: E402
+from icl_unlearning.data import build_spec               # noqa: E402
 from icl_unlearning.train import per_group_mse, train_ensemble   # noqa: E402
 
 
@@ -59,9 +59,7 @@ def main():
     n_train_seeds = int(tr.get("n_train_seeds", 1))
     print(f"device={dev}  config={name}  n_train_seeds={n_train_seeds}")
 
-    spec = MixtureSpec(names=d["groups"], eigs=d["eigs"], D=d["D"], N=d["N"],
-                       basis=d["basis"], seed=d["seed"],
-                       task=d.get("task", "regression"))
+    spec = build_spec(d)
     for g in spec.names:
         print(f"  {g}: PR = {spec.pr(g):.2f}")
 
