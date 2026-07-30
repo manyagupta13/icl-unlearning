@@ -34,13 +34,13 @@ import numpy as np
 import yaml
 from matplotlib.lines import Line2D
 
-MODES = ("C1", "C2", "C3", "flip", "whiten")
+MODES = ("C1", "C2", "C3", "flip", "bern", "whiten")
 
 # Two kinds of x-axis. The stochastic families sweep a noise variance (log
 # scale, spanning decades); the deterministic edits sweep a strength in [0, ~1]
 # (linear). Mixing them on one axis type makes both unreadable.
 AXIS_KIND = {"C1": "var", "C2": "var", "C3": "var",
-             "flip": "strength", "whiten": "interp"}
+             "flip": "strength", "bern": "prob", "whiten": "interp"}
 
 # The variance x-axis is a single scalar knob sigma^2 = the config `param`. It
 # is the variance of each scalar noise COMPONENT, in every family. Spelled out
@@ -56,8 +56,10 @@ TITLES = {
           r"$x_f + \epsilon_1,\ y_f + \epsilon_2,\ \ \epsilon_1\perp\epsilon_2$",
     # t=1 is exact sign inversion: y_f -> -y_f, i.e. 5 becomes -5. That point
     # IS parameter-free ICUL; the rest of the axis is a generalisation of it.
-    "flip": "ICUL / label flip\n"
+    "flip": "ICUL / label flip  (deterministic)\n"
             r"$y_f \to (1-2t)\,y_f$   ($t{=}1$ is exact flip, $5\to-5$)",
+    "bern": "Bernoulli label flip  (stochastic)\n"
+            r"$y_f \to (1-2B)\,y_f,\ \ B\sim\mathrm{Bern}(\theta)$",
     "whiten": "whiten  input-space\n"
               r"$x_f \to$ interpolate toward retain covariance",
 }
@@ -72,6 +74,8 @@ FOOTER_ENERGY = {
     # deterministic: delta_y = -2t y_f exactly, so the "energy" is data-scaled
     "flip": r"deterministic, label only:  $\delta y=-2t\,y_f$,  "
             r"$\mathbb{E}\|\delta\|^2=4t^2\,\mathbb{E}[y_f^2]$",
+    "bern": r"stochastic, label only:  $\mathbb{E}[\delta y]=-2\theta y_f$,  "
+            r"$\mathrm{Var}=4\theta(1-\theta)y_f^2$ (max at $\theta{=}0.5$)",
     "whiten": r"deterministic, inputs only; magnitude set by the "
               r"$\Lambda_f\!\to\!\Lambda_r$ gap",
 }
@@ -80,6 +84,8 @@ FOOTER_ENERGY = {
 VLINES = {
     "flip": [(0.5, "r", r"$t{=}0.5$: $\tilde y_f{=}0$, zero-mean dead zone"),
              (1.0, "g", r"$t{=}1$: ICUL (exact flip)")],
+    "bern": [(0.5, "r", r"$\theta{=}0.5$: maximum variance $4\theta(1-\theta)$"),
+             (1.0, "g", r"$\theta{=}1$: deterministic flip, variance $\to 0$")],
 }
 
 
@@ -119,6 +125,10 @@ def logx(ax, xs, mode="C1"):
     elif kind == "strength":
         ax.set_xlim(min(xs) - 0.03, max(xs) + 0.03)
         ax.set_xlabel(r"flip strength $t$   ($y_f \to (1-2t)\,y_f$)", fontsize=11)
+    elif kind == "prob":
+        ax.set_xlim(-0.02, 1.02)
+        ax.set_xlabel(r"flip probability $\theta$   "
+                      r"(variance $4\theta(1-\theta)$, max at $0.5$)", fontsize=11)
     else:
         ax.set_xlim(min(xs) - 0.02, max(xs) + 0.02)
         ax.set_xlabel("interpolation toward retain covariance", fontsize=11)

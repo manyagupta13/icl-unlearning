@@ -39,6 +39,16 @@ def check(name, cond, detail=""):
         FAIL.append(name)
 
 
+# `configs/generated/` is gitignored (reproducible from make_configs.py), so a
+# fresh clone has none of the 16. Say that plainly instead of emitting a wall
+# of downstream failures and a FileNotFoundError traceback.
+if not list(CFG.glob("*.yaml")):
+    sys.exit(f"no configs in {CFG.relative_to(ROOT)}/ -- this check runs AFTER "
+             f"config generation:\n\n"
+             f"    python scripts/make_configs.py --out configs/generated\n"
+             f"    python tests/verify_batch_preflight.py\n")
+
+
 # ------------------------------------------------------------------ 1 compile
 print("\n1. compile everything")
 for p in sorted(itertools.chain(ROOT.glob("src/**/*.py"),

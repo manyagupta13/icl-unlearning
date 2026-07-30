@@ -305,16 +305,41 @@ shrink hard and `rho << 1`).
 
 After the runs, fill in:
 
+Scored 2026-07-30 against the rotation tier (`rot_mid_identity`, `rot_mid`,
+`rot_flat_identity`, `rot_flat`; 512 shadows, 3 train x 3 probe seeds each).
+The PR and N/D tiers have not run, so P2/P3/P4/P6/P7 remain open.
+
 | # | claim | predicted | measured | verdict |
 |---|---|---|---|---|
-| P1 | σ²*(C1)/σ²*(C2) = tr(Λ⁻¹)/D | 4.9 / 10.2 / 20.9 / 42.3 | | |
-| P2 | B_C2 grows ~4x faster than B_C1 in D | 17.0 vs 4.0 at D=16 | | |
-| P3 | B halves when N doubles at fixed D | 0.46x, 0.50x | | |
-| P4 | matched N/D ⇒ matched intercept, different σ²* | — | | |
-| P6 | σ²*(C2) rises 13.7x across the PR sweep | monotone | | |
-| P7 | \|AUC−0.5\| V-shaped in PR(z3), min near 2.1 | — | | |
-| P8 | rot_*_identity sits at chance everywhere | 0.5 ± CI | | |
-| P9 | rot_* baseline AUC much closer to 0.5 | — | | |
-| P10 | C2 never crosses 0.5; C1 does | — | | |
-| P11 | C2 drop is ~all masking, at every D | — | | |
-| P12 | theory overlay holds at every D | — | | |
+| P1 | σ²*(C1)/σ²*(C2) = tr(Λ_f⁻¹)/D | 4.55 (rot_flat), 7.02 (rot_mid) | 4.58 / 3.59 (rot_flat); 1.97 / 1.89 (rot_mid) | **mixed** — direct hit on rot_flat ATTN-M, off 3.6x on rot_mid |
+| P2 | B_C2 grows ~4x faster than B_C1 in D | 17.0 vs 4.0 at D=16 | — | not run |
+| P3 | B halves when N doubles at fixed D | 0.46x, 0.50x | — | not run |
+| P4 | matched N/D ⇒ matched intercept, different σ²* | — | — | not run |
+| P6 | σ²*(C2) rises 13.7x across the PR sweep | monotone | — | not run |
+| P7 | \|AUC−0.5\| V-shaped in PR(z3), min near 2.1 | — | — | not run |
+| P8 | rot_*_identity sits at chance | 0.5 ± CI | 0.5025 / 0.5041 (mid), 0.5008 / 0.5000 (flat) | **confirmed** |
+| P9 | rot_* baseline AUC much closer to 0.5 | — | 0.4174 / 0.4292 (mid), 0.4482 / 0.4680 (flat) | **FAILED** |
+| P10 | C2 never crosses 0.5; C1 does | — | neither crosses; C1 max 0.4974 | **FAILED** (C1 half) |
+| P11 | C2 drop is ~all masking | — | 99–102% below σ²≈1, 22% at σ²=100 | **partial** |
+| P12 | theory overlay holds | — | mean \|err\| 4×10⁻⁴, max 2×10⁻³ | **confirmed** |
+
+### Notes on the two failures
+
+**P9.** The prediction rested on NOTES §4g's claim that equalising the spectra
+makes `Λ_train` "nearly identical" for full and oracle. It does not: averaging
+2 versus 3 random rotations in D=4 leaves both averages strongly anisotropic
+and different from each other. The measured deviation from chance (~0.07–0.08)
+is reproducible across independent training seeds to within 0.001, so it is a
+systematic property, not noise. A mismatch-only simulation containing no
+memorisation predicts 0.313 for `rot_mid` against 0.417 measured — the right
+sign and rough scale, over-predicting the confound. **The decomposition of that
+0.07 into read-out mismatch versus genuine memorisation is now the open
+question**, and it needs `c_y` and `‖c_x‖²` from the trained ensembles.
+
+**P10.** The C1 mean-shift term is real (NOTES §0, Monte-Carlo verified) and is
+included in the closed form, which still matches to 4×10⁻⁴ — so the algebra is
+not at fault. The coefficient `c_y` in the trained models is simply too small
+for the numerator to overtake the denominator anywhere on the swept grid. The
+practical consequence is that the `β = (1/N)Σyₙxₙ` idealisation, which drops
+the `Σy²` block entirely, is the better *working* approximation here even
+though it is not the exact algebra.
