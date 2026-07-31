@@ -89,7 +89,11 @@ def main():
     meta = {
         "cfg_D": d["D"], "cfg_N": d["N"],
         "cfg_ND_ratio": round(d["N"] / d["D"], 6),
-        "cfg_basis": d["basis"], "cfg_forget": d["forget"],
+        # MNIST specs have no eigenbasis -- inputs are real images, not
+        # drawn from a parameterised Gaussian.
+        "cfg_basis": d.get("basis", "n/a"), "cfg_forget": d["forget"],
+        "cfg_source": d.get("source", "gaussian"),
+        "cfg_task": d.get("task", "regression"),
         "cfg_n_shadows": tr["n_shadows"], "cfg_steps": tr["steps"],
         "cfg_optim": tr["optim"], "cfg_lr": tr["lr"],
         "cfg_probe_P": pr["P"],

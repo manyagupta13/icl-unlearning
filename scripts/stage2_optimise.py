@@ -40,13 +40,33 @@ from icl_unlearning.policy import (ConditionalBernoulli,        # noqa: E402
                                    policy_auc, reinforce_grad)
 
 
-def empirical_auc_and_eps(M_full, M_oracle, probe, spec, theta_mask, gen):
-    """Measured (not Gaussian-approximated) AUC and eps for a given flip mask."""
+def empirical_auc_and_eps(M_full, M_oracle, probe, spec, theta_mask, gen,
+                          sample=True):
+    """Measured (not Gaussian-approximated) AUC and eps for a flip policy.
+
+    `theta_mask` is a Bernoulli PROBABILITY theta when sample=True (the usual
+    case: the policy emits a probability and the corruption is the stochastic
+    flip y -> (1-2B)y with B ~ Bern(theta), drawn independently per shadow,
+    exactly as corrupt.py's `bern` arm does).
+
+    Pass sample=False only when theta_mask is already a realised {0,1} draw,
+    as it is inside the REINFORCE estimator.
+
+    NB: multiplying by (1 - 2*theta) directly -- i.e. treating the probability
+    as if it were the draw -- is NOT this corruption. That is the deterministic
+    `flip` arm at strength theta: same mean, but no variance, hence no masking
+    channel. The two give materially different AUCs.
+    """
     S = M_full.shape[0]
     sl = probe.forget_slice
     x = probe.x.unsqueeze(0).expand(S, *probe.x.shape).clone()
     y = probe.y.unsqueeze(0).expand(S, *probe.y.shape).clone()
-    y[:, :, sl] = y[:, :, sl] * (1.0 - 2.0 * theta_mask)
+    if sample:
+        p = theta_mask.expand(S, *theta_mask.shape[1:]).clamp(0.0, 1.0)
+        B = torch.bernoulli(p, generator=gen)
+    else:
+        B = theta_mask
+    y[:, :, sl] = y[:, :, sl] * (1.0 - 2.0 * B)
     from icl_unlearning.data import assemble
     X, yl, yq = assemble(x, y)
     o1 = audit.observables(apply_frozen(M_full, X, yl, spec.N), yq)
@@ -147,8 +167,9 @@ def main():
             opt2 = torch.optim.Adam(pol2.parameters(), lr=args.lr)
 
             def auc_fn(B):
+                # B is already a realised {0,1} draw -- do not resample it
                 a, _ = empirical_auc_and_eps(M_full, M_oracle, probe, spec,
-                                             B.unsqueeze(0), gen)
+                                             B.unsqueeze(0), gen, sample=False)
                 return (a - 0.5) ** 2 if args.objective == "dist" else a
 
             t0 = time.time()
