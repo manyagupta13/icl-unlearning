@@ -64,7 +64,10 @@ def sweep_point(spec: MixtureSpec, probe: Probe, M_full: torch.Tensor,
     # function of that one draw and its sampling variance is enormous -- it comes
     # out as a jagged line that swings 0.4-0.9 between adjacent grid points and
     # is unreadable. `n_shared_reps` independent draws, averaged, fixes it.
-    stochastic = mode in ("C1", "C2", "C3")
+    # `bern` belongs here and `flip` does not: the Bernoulli flip draws fresh
+    # randomness per shadow, so it has a variance channel and the masking
+    # control is meaningful for it. `flip` is deterministic given the probe.
+    stochastic = mode in ("C1", "C2", "C3", "bern")
     shared_acc = {}
     if stochastic:
         for _ in range(n_shared_reps):
@@ -123,7 +126,7 @@ def sweep_point(spec: MixtureSpec, probe: Probe, M_full: torch.Tensor,
     # derived form (see theory.py), so they get NaN rather than a guess.
     rec["auc_theory_residual"] = (
         theory.predicted_auc(M_full, M_oracle, probe, mode, param)
-        if mode in ("C1", "C2") else float("nan"))
+        if mode in ("C1", "C2", "bern") else float("nan"))
 
     # Distributional criterion on the forget-population residual law.
     #

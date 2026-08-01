@@ -27,6 +27,22 @@ Both were confirmed by Monte Carlo against a from-scratch reimplementation
 (tests/verify_algebra.py): C1's shift matches to 4 significant figures and
 grows linearly in s; C2's is ~1e-5 at every s tested.
 
+bern  y_f -> (1 - 2B) y_f,  B ~ Bern(t)   [the learned-policy parameterisation]
+    Write a_i = y_i * (c_x . x_i) over the forget slice. Then
+    E[dyhat]   = -2 t / (N+1) * sum_i a_i
+    Var[dyhat] =  4 t (1-t) / (N+1)^2 * sum_i a_i^2
+
+    The step that makes this cleaner than C1: (1 - 2B)^2 = 1 identically, so a
+    sign flip leaves the label-label block sum_i y_i^2 of the context vector
+    EXACTLY unchanged. C1's epsilon^2 drift has no analogue here, and c_y does
+    not enter at all. Confirmed by Monte Carlo at 400k trials per point
+    (tests/verify_bern.py): means match to 3-4 significant figures, variances
+    likewise, and the label-label block difference is identically 0.
+
+    Note the variance is non-monotone in t: zero at t=0, maximal at t=0.5,
+    zero again at t=1 where the flip becomes deterministic. So `bern` at t=1
+    coincides with `flip` at t=1, and the two arms differ most at t=0.5.
+
 C3 is deliberately NOT provided. Perturbing x and y simultaneously introduces
 an eta*eps cross term in the x-block of u; it is still tractable but was not
 derived or verified in NOTES.md, and shipping an unverified formula next to
@@ -98,6 +114,12 @@ def noise_moments(M: torch.Tensor, probe: Probe, mode: str, sigma2: float):
     elif mode == "C2":
         shift = torch.zeros_like(c_y)
         var = s * (c_x ** 2).sum(-1) * (y_f ** 2).sum(-1) / denom
+    elif mode == "bern":
+        # a_i = y_i * (c_x . x_i); the label-label block is untouched because
+        # (1 - 2B)^2 = 1, so c_y never enters.
+        a = torch.einsum("spd,pid->spi", c_x, x_f) * y_f
+        shift = -2.0 * s * a.sum(-1) / (N + 1)
+        var = 4.0 * s * (1.0 - s) * (a ** 2).sum(-1) / denom
     else:
         raise ValueError(f"no closed form for mode {mode!r} -- see module docstring")
     return shift, var

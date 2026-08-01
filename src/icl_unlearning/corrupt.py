@@ -17,6 +17,14 @@ Families
     flip    tunable sign strength     y_f -> (1 - 2t) y_f             param = t
             t=0 identity, t=1 full sign-flip (parameter-free ICUL),
             t=0.5 the zero-mean dead zone
+            DETERMINISTIC: no variance channel, so it cannot exhibit masking.
+    bern    stochastic sign flip      y_f -> (1 - 2B) y_f, B ~ Bern(t)  param = t
+            The corruption actually specified for the learned-policy stage:
+            p_theta(ytilde_f | .) ~ Bern(theta) with the features left alone.
+            Same MEAN as `flip` -- E[(1-2B)y] = (1-2t)y -- but it also carries
+            variance 4t(1-t)y^2, so unlike `flip` it has a masking channel.
+            t=0 identity, t=1 deterministic full flip (variance vanishes again),
+            t=0.5 maximum variance.
     whiten  map forget inputs toward the retain covariance
             x_f -> C_ret^{1/2} C_f^{-1/2} x_f, interpolated by param in [0,1]
             (input-space; uses EMPIRICAL covariances, never the true Lambda)
@@ -71,6 +79,19 @@ def _noise(shape, shared: bool, gen, dev, dt) -> torch.Tensor:
     return torch.randn(shape, generator=gen, device=dev, dtype=dt)
 
 
+def _bernoulli(shape, p: float, shared: bool, gen, dev, dt) -> torch.Tensor:
+    """
+    {0,1} mask of `shape` = [S, ...] with P(1) = p. `shared` broadcasts one draw
+    across the shadow axis, exactly as `_noise` does, so the masking control
+    applies to this arm too.
+    """
+    if shared:
+        base = (torch.rand((1, *shape[1:]), generator=gen, device=dev,
+                           dtype=dt) < p).to(dt)
+        return base.expand(shape).clone()
+    return (torch.rand(shape, generator=gen, device=dev, dtype=dt) < p).to(dt)
+
+
 def corrupt(probe: Probe, S: int, mode: str, param: float,
             gen: torch.Generator, retain_x: torch.Tensor | None = None,
             shared_noise: bool = False):
@@ -106,6 +127,11 @@ def corrupt(probe: Probe, S: int, mode: str, param: float,
     elif mode == "flip":
         y[:, :, sl] *= (1.0 - 2.0 * float(param))
 
+    elif mode == "bern":
+        B = _bernoulli(y[:, :, sl].shape, float(param), shared_noise,
+                       gen, dev, dt)
+        y[:, :, sl] = y[:, :, sl] * (1.0 - 2.0 * B)
+
     elif mode == "whiten":
         if retain_x is None:
             raise ValueError("mode='whiten' needs retain_x")
@@ -123,4 +149,4 @@ def corrupt(probe: Probe, S: int, mode: str, param: float,
 
 
 #: grids are declared in the config; this is only the registry of valid modes
-MODES = ("none", "C1", "C2", "C3", "flip", "whiten")
+MODES = ("none", "C1", "C2", "C3", "flip", "bern", "whiten")

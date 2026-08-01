@@ -35,11 +35,12 @@ import matplotlib.pyplot as plt
 import numpy as np
 import yaml
 
-MODES = ("C1", "C2", "C3", "flip", "whiten")
+MODES = ("C1", "C2", "C3", "flip", "bern", "whiten")
 TITLES = {"C1": "C1  label noise", "C2": "C2  input noise", "C3": "C3  both",
-          "flip": "ICUL / label flip", "whiten": "whiten"}
+          "flip": "ICUL / label flip (deterministic)",
+          "bern": "Bernoulli label flip (stochastic)", "whiten": "whiten"}
 AXIS_KIND = {"C1": "var", "C2": "var", "C3": "var",
-             "flip": "strength", "whiten": "interp"}
+             "flip": "strength", "bern": "prob", "whiten": "interp"}
 
 # t=1 is exact sign inversion (5 -> -5): parameter-free ICUL. Reported as a
 # named operating point so it can be compared against the tuned noise families.
@@ -73,6 +74,13 @@ def logx(ax, xs, mode="C1"):
         ax.set_xlabel(r"flip strength $t$   ($t{=}1$ is ICUL)", fontsize=11)
         if min(xs) <= ICUL_T <= max(xs):
             ax.axvline(ICUL_T, color="g", lw=1.1, ls="--", alpha=0.6, zorder=0)
+    elif kind == "prob":
+        ax.set_xlim(-0.02, 1.02)
+        ax.set_xlabel(r"flip probability $\theta$   "
+                      r"($\theta{=}1$ is ICUL, $\theta{=}0.5$ max variance)",
+                      fontsize=11)
+        for xv, col in ((0.5, "r"), (1.0, "g")):
+            ax.axvline(xv, color=col, lw=1.1, ls="--", alpha=0.6, zorder=0)
     else:
         ax.set_xlim(min(xs) - 0.02, max(xs) + 0.02)
         ax.set_xlabel("interpolation toward retain covariance", fontsize=11)
@@ -157,7 +165,8 @@ def main():
                  "dash-dot: AUC closest to chance", ha="right", va="bottom",
                  fontsize=6.5, color="0.45")
         for ext in ("pdf", "png"):
-            fig.savefig(fdir / f"tradeoff_{mode}.{ext}", dpi=180, bbox_inches="tight")
+            fig.savefig(fdir / f"tradeoff_{mode}_{name}.{ext}", dpi=180,
+                        bbox_inches="tight")
         plt.close(fig)
 
         # ------------------------------------------------ alpha-eps frontier
@@ -179,7 +188,8 @@ def main():
         axf.legend(fontsize=8, frameon=False)
         fig2.tight_layout()
         for ext in ("pdf", "png"):
-            fig2.savefig(fdir / f"frontier_{mode}.{ext}", dpi=180, bbox_inches="tight")
+            fig2.savefig(fdir / f"frontier_{mode}_{name}.{ext}", dpi=180,
+                         bbox_inches="tight")
         plt.close(fig2)
 
     print("\n'eps ratio' = how much preservation you pay to reach chance-level AUC.")
