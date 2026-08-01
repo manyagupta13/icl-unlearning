@@ -96,6 +96,11 @@ class ScalarBernoulli(nn.Module):
     def penalty(self) -> torch.Tensor:
         return torch.sigmoid(self.logit).abs()
 
+    def budget(self, x_f: torch.Tensor, y_f: torch.Tensor) -> torch.Tensor:
+        """Mean flip probability. See ConditionalBernoulli.budget for why this
+        exists alongside penalty()."""
+        return self(x_f, y_f).mean()
+
 
 class ConditionalBernoulli(nn.Module):
     """
@@ -120,6 +125,22 @@ class ConditionalBernoulli(nn.Module):
 
     def penalty(self) -> torch.Tensor:
         return sum(p.pow(2).sum() for p in self.net.parameters()).sqrt()
+
+    def budget(self, x_f: torch.Tensor, y_f: torch.Tensor) -> torch.Tensor:
+        """
+        Mean flip probability, i.e. the expected fraction of forget labels that
+        get flipped.
+
+        penalty() is NOT usable for comparing the two policies. For
+        ScalarBernoulli it returns theta; here it returns the L2 norm of the MLP
+        weights, which is in different units and has no fixed relationship to how
+        much corruption is applied. Regularising both by `penalty` and calling
+        the resulting curves comparable would be wrong -- the same lambda would
+        mean different things. `budget` is the same quantity for both, so
+        sweeping lambda against it traces frontiers that can be laid on the same
+        axes.
+        """
+        return self(x_f, y_f).mean()
 
 
 # ------------------------------------------------------------- closed-form AUC

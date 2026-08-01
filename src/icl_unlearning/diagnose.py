@@ -1,0 +1,202 @@
+"""
+What did the conditional policy actually learn?
+
+Stage 2's scalar policy has one knob: a single flip probability theta applied to
+every forget token. The conditional policy has one knob per token,
+theta_i = sigmoid(MLP([x_i ; y_i])). If it beats the scalar, the interesting
+question is not "by how much" but "by doing what", and there are only two things
+it can be doing.
+
+THE LEVER
+---------
+Take the Gaussian AUC of theory.py. Under independent per-token flips the
+mean of yhat moves by
+
+    E[dyhat] = -2/(N+1) sum_i theta_i a_i ,   a_i = y_i (c_x . x_i)
+
+and a_i is computed separately under each hypothesis, because c_x comes from M.
+What the attacker actually sees is the GAP between the two hypotheses, so the
+quantity a single token can move is the difference, sign-aligned the same way
+audit.py aligns the residual:
+
+    L_i = sgn(y_q) . (-2/(N+1)) . ( E_s[a_i | M_full] - E_s[a_i | M_orac] )
+
+L_i is this token's lever on mu1 - mu0. Spending flip budget on a token with
+|L_i| near zero buys nothing: it perturbs both hypotheses equally and the AUC
+does not move. This is the quantity the conditional policy can see and the
+scalar policy cannot, so it is the one to measure against.
+
+TWO MECHANISMS, BOTH FALSIFIABLE
+--------------------------------
+1. TARGETING. Put budget on high-|L_i| tokens. Measured by
+
+       T = (sum_i theta_i L_i) / (thetabar . sum_i L_i)
+
+   the mean shift achieved, divided by the shift a scalar policy spending the
+   SAME average budget thetabar would achieve. T = 1 is no targeting at all;
+   T > 1 means each unit of flip probability is buying more removal. This is a
+   ratio of achieved-to-uniform, so it is directly the thing that would make a
+   conditional policy worth having.
+
+2. POLARISATION. Push theta_i toward 0 or 1 rather than sitting at intermediate
+   values. The flip variance is 4 theta_i (1 - theta_i) a_i^2, maximal at
+   theta = 1/2 and zero at both ends, so a polarised policy buys the same mean
+   shift with less variance. Variance inflation is the masking channel -- it
+   moves AUC toward chance without removing anything (Stage 1, the shared-noise
+   control), so a policy that reaches chance with LESS variance is doing more
+   genuine removal. Measured by
+
+       R = mean_i[theta_i (1 - theta_i)] / (thetabar (1 - thetabar))
+
+   which is <= 1 by Jensen, equals 1 exactly when theta is uniform, and falls
+   toward 0 as the policy polarises.
+
+Both metrics are 1 under a scalar policy by construction. That is deliberate:
+it makes the scalar the null, and any departure from 1 is the conditional
+policy doing something a scalar could not.
+
+A WARNING ON READING THESE
+--------------------------
+T > 1 with the AUC unchanged means the policy found the levers but had no room
+left to use them. T ~ 1 with the AUC improved means the gain came from somewhere
+other than targeting, and the explanation is wrong. Both are informative; only
+T > 1 AND a lower eps at matched AUC supports the targeting story.
+"""
+from __future__ import annotations
+
+import torch
+
+from .data import Probe
+from .theory import readout_covector
+
+
+def _rank(v: torch.Tensor) -> torch.Tensor:
+    """Ascending ranks along the last axis. Ties get arbitrary distinct ranks;
+    with continuous a_i exact ties are measure-zero and not worth the code."""
+    idx = v.argsort(dim=-1)
+    out = torch.empty_like(v)
+    ar = torch.arange(v.shape[-1], device=v.device, dtype=v.dtype)
+    out.scatter_(-1, idx, ar.expand_as(v).contiguous())
+    return out
+
+
+def _corr(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
+    """Pearson correlation along the last axis -> [...]"""
+    a = a - a.mean(-1, keepdim=True)
+    b = b - b.mean(-1, keepdim=True)
+    num = (a * b).sum(-1)
+    den = (a.pow(2).sum(-1) * b.pow(2).sum(-1)).clamp_min(1e-30).sqrt()
+    return num / den
+
+
+@torch.no_grad()
+def token_lever(M_full: torch.Tensor, M_oracle: torch.Tensor,
+                probe: Probe) -> torch.Tensor:
+    """
+    L_i, the per-token lever on the hypothesis gap. Returns [P, n_f].
+
+    See the module docstring. This is the difference of the per-hypothesis
+    influences a_i = y_i (c_x . x_i), averaged over shadows, sign-aligned by
+    sgn(y_q) and scaled by -2/(N+1) so that
+
+        d(mu1 - mu0) / d theta_i  =  L_i
+
+    exactly, with mu1, mu0 as defined in theory.predicted_auc.
+    """
+    sl = probe.forget_slice
+    N = probe.x.shape[1] - 1
+    x_f, y_f = probe.x[:, sl, :], probe.y[:, sl]
+
+    yq = probe.y[:, -1]
+    sgn = torch.sign(yq)
+    sgn = torch.where(sgn == 0, torch.ones_like(sgn), sgn)
+
+    bar = []
+    for M in (M_full, M_oracle):
+        c_x, _, _ = readout_covector(M, probe)                 # [S, P, D]
+        a = torch.einsum("spd,pid->spi", c_x, x_f) * y_f       # [S, P, n_f]
+        bar.append(a.mean(dim=0))                              # [P, n_f]
+
+    return sgn[:, None] * (-2.0 / (N + 1)) * (bar[0] - bar[1])
+
+
+@torch.no_grad()
+def describe_policy(theta: torch.Tensor, lever: torch.Tensor,
+                    n_buckets: int = 5) -> dict:
+    """
+    Targeting and polarisation statistics for a realised theta.
+
+        theta  [P, n_f]   flip probabilities the policy emitted
+        lever  [P, n_f]   from token_lever
+
+    All statistics are computed within each probe point and then averaged over
+    probe points, matching how audit.py aggregates AUC. Averaging the ratios
+    rather than ratioing the averages is the conservative choice: it stops one
+    probe point with a near-zero denominator from dominating.
+    """
+    theta = theta.detach().to(lever.dtype)
+    if theta.shape != lever.shape:
+        theta = theta.expand_as(lever)
+
+    tbar = theta.mean(-1)                                       # [P]
+    denom = tbar * lever.sum(-1)                                # [P]
+
+    # Probe points where the uniform-policy shift is ~0 have no meaningful
+    # "what would a scalar have got" baseline; drop them rather than report a
+    # ratio against noise.
+    scale = lever.abs().sum(-1).clamp_min(1e-30)
+    ok = denom.abs() > 1e-6 * scale
+    targeting = torch.where(ok, (theta * lever).sum(-1) / denom.masked_fill(~ok, 1.0),
+                            torch.full_like(denom, float("nan")))
+
+    pol_num = (theta * (1.0 - theta)).mean(-1)
+    pol_den = (tbar * (1.0 - tbar)).clamp_min(1e-30)
+    polarisation = pol_num / pol_den
+
+    absL = lever.abs()
+    rho_signed = _corr(_rank(theta), _rank(lever))
+    rho_abs = _corr(_rank(theta), _rank(absL))
+
+    # Mean theta by |lever| bucket, lowest to highest. The scalar policy gives a
+    # flat row here; a targeting policy gives an increasing one.
+    n_f = theta.shape[-1]
+    k = min(n_buckets, n_f)
+    order = absL.argsort(dim=-1)
+    th_sorted = theta.gather(-1, order)
+    edges = [round(j * n_f / k) for j in range(k + 1)]
+    buckets = [float(th_sorted[..., edges[j]:edges[j + 1]].mean())
+               for j in range(k)]
+
+    frac = float(ok.float().mean())
+    return {
+        "theta_mean": float(theta.mean()),
+        "theta_min": float(theta.min()),
+        "theta_max": float(theta.max()),
+        "theta_std_within_probe": float(theta.std(dim=-1).mean()),
+        "targeting_T": float(torch.nanmean(targeting)),
+        "targeting_frac_usable": frac,
+        "polarisation_R": float(polarisation.mean()),
+        "spearman_theta_lever": float(rho_signed.mean()),
+        "spearman_theta_abs_lever": float(rho_abs.mean()),
+        "theta_by_abs_lever_bucket": buckets,
+        "lever_abs_mean": float(absL.mean()),
+        "lever_gini": float(_gini(absL)),
+    }
+
+
+@torch.no_grad()
+def _gini(v: torch.Tensor) -> torch.Tensor:
+    """
+    Gini coefficient of |lever| within each probe point, averaged.
+
+    Context for the targeting number: if the levers are all the same size
+    (Gini ~ 0) there is nothing for a conditional policy to target and T ~ 1 is
+    the expected result, not a failure. If they are highly unequal (Gini -> 1)
+    and T is still ~1, the policy genuinely did not find them.
+    """
+    n = v.shape[-1]
+    s = v.sort(dim=-1).values
+    w = torch.arange(1, n + 1, device=v.device, dtype=v.dtype)
+    num = ((2 * w - n - 1) * s).sum(-1)
+    den = (n * s.sum(-1)).clamp_min(1e-30)
+    return (num / den).mean()
