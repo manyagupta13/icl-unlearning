@@ -1,4 +1,17 @@
+# core
 torch>=2.1
+numpy>=1.24
 pyyaml>=6.0
 matplotlib>=3.7
+
+# analysing the results CSVs
+pandas>=2.0
+
+# tests
 pytest>=7.0
+
+# MNIST loading only (configs/mnist.yaml). src/icl_unlearning/mnist.py tries
+# torchvision, then keras, then sklearn's fetch_openml -- any ONE suffices,
+# and torchvision is the lightest.
+torchvision>=0.16
+# scikit-learn>=1.3   # alternative fallback loader

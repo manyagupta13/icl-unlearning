@@ -1,17 +1,23 @@
 __pycache__/
 *.pyc
-artifacts/*.pt
-artifacts/*.csv
-figures/*.pdf
-figures/*.png
-artifacts/logs/
 .pytest_cache/
 
+# cached ensembles and sweep outputs -- regenerate with scripts/
+artifacts/*.pt
+artifacts/*.csv
+artifacts/*.json
+artifacts/logs/
+figures/*.pdf
+figures/*.png
+
 # generated configs are reproducible from make_configs.py; keep the script,
-# not the 16 output files
+# not the output files
 configs/generated/
 
-# LaTeX build artifacts
+# LaTeX build artifacts. NOTE: report/paper.pdf and report/fig/*.pdf ARE
+# tracked -- they are the deliverable and the figures it embeds.
 report/*.aux
 report/*.log
 report/*.out
+report/*.toc
+report/*.synctex.gz
