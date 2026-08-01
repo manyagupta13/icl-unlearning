@@ -143,14 +143,37 @@ $\approx0.54$ when the truth is $0.50$), which would manufacture signal at
 exactly the point these experiments measure.
 
 \textbf{Preservation.} How far the corrupted model has drifted from the
-retrain oracle it is meant to imitate:
+retrain oracle it is meant to imitate. Fitting the forget-population residual
+law as a univariate Gaussian $(\mu,v)$ over the probe gives two Gaussian KLs,
 \begin{equation}
-\varepsilon = \mathrm{KL}\big(p_{\mathrm{oracle}} \,\|\, p_{\mathrm{unlearned}}\big)
+\alpha = \mathrm{KL}\big(p_{\mathrm{full}} \,\|\, p_{\mathrm{unlearned}}\big),
+\qquad
+\varepsilon = \mathrm{KL}\big(p_{\mathrm{oracle}} \,\|\, p_{\mathrm{unlearned}}\big).
 \end{equation}
-on the forget-population residual law, which is fit as a univariate Gaussian
-$(\mu,v)$ over the probe population, so $\varepsilon$ is a Gaussian KL.
-Unlearning is only useful if $\mathrm{AUC}\to\tfrac12$ \emph{and}
-$\varepsilon$ stays small.
+$\alpha$ measures \emph{removal}: how far the edit has moved the model away
+from its uncorrupted self, so larger is better. $\varepsilon$ measures
+\emph{preservation}: how far it sits from the retrain oracle, so smaller is
+better. Unlearning is only useful if $\mathrm{AUC}\to\tfrac12$ \emph{and}
+$\varepsilon$ stays small. The two are plotted against each other in the
+removal/preservation planes of Figure~\ref{fig:e1frontier} and Appendix~C.
+
+\paragraph{The model.} One layer of linear self-attention doing in-context
+regression. Writing $M=W_QW_K^{\!\top}$ and $t_i$ for the $i$th context token,
+the prediction at the query is
+\begin{equation}
+\hat y_q = \frac{1}{N+1}\, t_q^{\!\top} M u ,
+\qquad u = \sum_i t_i\,y_i ,
+\label{eq:readout}
+\end{equation}
+so the read-out is \emph{linear in the context labels}. That is the only
+property the derivation in Appendix~\ref{app:deriv} uses. We write
+$c_x = M^{\!\top}x_q$ for the resulting weight on input $x_i$.
+
+The two architectures share this forward pass exactly and differ only in how
+$M$ is parameterised, hence in their training dynamics: \textbf{ATTN-S} keeps
+the factored form $M=W_QW_K^{\!\top}$, \textbf{ATTN-M} learns the merged $M$
+directly. They are carried through every experiment as two independent
+instances of the same phenomenon, not as a comparison of interest in itself.
 
 \paragraph{Are AUC and $\varepsilon$ the same measurement?} Both depend on the
 first two moments, so the cost ratios below could be tautological. They are
@@ -213,7 +236,8 @@ whole sweep takes seconds against cached ensembles.
 \paragraph{A closed form for the flip.} AUC is not differentiable through the
 sampling, which is why a REINFORCE estimator is the usual choice. For this
 policy it can be avoided. With $a_i = y_i\,(c_x\!\cdot\! x_i)$ over the forget
-slice, the change in the read-out has moments
+slice --- the signed contribution of context token $i$ to
+\eqref{eq:readout} --- the change in the read-out has moments
 \begin{equation}
 \mathbb E[\Delta\hat y] = \frac{-2\theta}{N+1}\sum_i a_i,
 \qquad
