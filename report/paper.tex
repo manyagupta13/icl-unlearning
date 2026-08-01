@@ -830,16 +830,6 @@ needs a GPU. The correctness checks in \texttt{tests/} run on CPU;
 \texttt{verify\_bern.py} is the one that matters for
 Equation~\eqref{eq:moments}.
 
-\paragraph{Two bugs, found and fixed.} Both were caught by cross-checking
-Stage 2 against the Stage 1 sweep. First, Stage 2's measurement treated the
-flip probability $\theta$ as a realised draw and computed $(1-2\theta)y_f$.
-That is the deterministic \texttt{flip} arm, not the stochastic one. The
-symptom was that the Stage 2 grid search reproduced the \texttt{flip} curve
-exactly ($0.4751$) rather than the \texttt{bern} curve ($0.4821$). Second, the
-sweep script read an eigenbasis field that MNIST configs do not have, so the
-MNIST sweep raised \texttt{KeyError} after computing every result. All numbers
-here are from after both fixes.
-
 \clearpage
 \appendix
 % ===========================================================================
