@@ -136,6 +136,15 @@ $\tfrac12$, and unlearning means driving AUC \emph{down} to $\tfrac12$. The
 ordering is fixed in the code rather than chosen per run, so it cannot be tuned
 after the fact.
 
+The $\mathrm{sign}(y)$ factor is necessary, not cosmetic. At a probe point
+with $y_q>0$ an under-fitting oracle sits \emph{below} the full model, and at
+$y_q<0$ it sits above. Ranking the raw residual therefore gives per-point AUCs
+on opposite sides of $\tfrac12$, which cancel to $\approx\tfrac12$ when
+averaged over a probe with mixed-sign queries, however distinguishable the two
+ensembles actually are. Multiplying by $\mathrm{sign}(y_q)$ before ranking
+removes the cancellation, and the auditor knows the probe label by
+construction, so this stays inside the threat model.
+
 \emph{Both models are scored on the same corrupted prompt with the same noise
 draw}, so detecting the edit cannot be mistaken for detecting membership. We do
 not symmetrise: $\max(a,1-a)$ is biased upward under the null (it reads
@@ -200,12 +209,38 @@ whiten & $x_f \to$ covariance-matched to retain groups & mixing & --- \\
 \end{tabular}
 \end{center}
 
-The last two matter most. \texttt{flip} has a mean shift and no variance.
-\texttt{bern} has the same mean, $\mathbb E[(1-2B)y]=(1-2\theta)y$, plus
-variance $4\theta(1-\theta)y^2$. Write the predicted AUC as
-$\Phi\!\big((\mu_1-\mu_0)/\sqrt{v_1+v_0}\big)$. A zero-mean corruption can only
-inflate the denominator, so it can never push AUC through $\tfrac12$. A mean
-shift moves the numerator directly.
+The last three deserve a word.
+
+\texttt{flip} has a mean shift and no variance. \texttt{bern} has the same
+mean, $\mathbb E[(1-2B)y]=(1-2\theta)y$, plus variance $4\theta(1-\theta)y^2$.
+Write the predicted AUC as $\Phi\!\big((\mu_1-\mu_0)/\sqrt{v_1+v_0}\big)$. A
+zero-mean corruption can only inflate the denominator, so it can never push AUC
+through $\tfrac12$. A mean shift moves the numerator directly.
+
+\texttt{whiten} is the obvious naive approach to unlearning: make the forget
+group's inputs \emph{look like} the inputs we are allowed to keep. Since the
+groups differ only in input covariance, that means mapping the forget
+covariance onto the retain one. With $C_f$ and $C_r$ the empirical covariances
+of the forget tokens and of a sample of retain-group inputs,
+\begin{equation}
+W = C_r^{1/2}\,C_f^{-1/2},
+\qquad
+x_f \;\to\; \big[(1-t)\,I + t\,W\big]\,x_f ,
+\end{equation}
+where $t\in[0,1]$ is the mixing parameter swept like any other. $C_f^{-1/2}$
+whitens, taking the forget cloud to identity covariance --- hence the name ---
+and $C_r^{1/2}$ recolours it to the retain shape, so at $t=1$ the forget inputs
+match the retain groups at second order. Both covariances are estimated from
+samples; the true $\Lambda$ is never used. Note this interpolates the matrix,
+not the covariance, so intermediate $t$ is not the geometric midpoint between
+$C_f$ and $C_r$; it is monotone and correct at both endpoints, which is all a
+sweep needs.
+
+\texttt{whiten} touches only $x$, never the labels, and is deterministic given
+the probe. It therefore has no variance channel and no mean channel in the
+residual, which is why its ``channel'' entry is blank. It is included as a
+control: if matching the input distribution were enough to remove membership
+evidence, this arm would show it.
 
 % ===========================================================================
 \section{Method}
