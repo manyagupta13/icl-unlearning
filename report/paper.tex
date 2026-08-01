@@ -17,6 +17,8 @@
 \usepackage{microtype}
 \usepackage[hidelinks]{hyperref}
 \usepackage{mdframed}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta,positioning,fit,backgrounds}
 \usepackage{needspace}
 \usepackage{float}
 % let figures take more of a page before being deferred
@@ -57,7 +59,35 @@ how much does corrupting it actually remove?}}
 
 \begin{document}
 \maketitle
-\vspace{-1.5cm}
+\vspace{-1.3cm}
+
+\begin{abstract}
+\noindent
+We ask whether a group of training examples can be unlearned from a
+linear-attention in-context learner by \emph{corrupting that group inside the
+prompt}, with no weight update, and whether a membership adversary is actually
+defeated or merely blinded. Sweeping six corruption families over four decades
+of strength, on a synthetic Gaussian task and on real MNIST features, across
+nine seed combinations, we find that \textbf{the membership signal lives in the
+first moment of the residual}. Additive-noise corruptions cannot reach it: they
+drive the adversary toward chance only by inflating variance, and a
+shared-noise control attributes $84$--$100\%$ of that movement to masking
+rather than removal. Reaching chance this way costs $762$--$1699\times$ in
+preservation error on the synthetic task and $4375$--$7838\times$ on MNIST.
+Corruptions that move the \emph{mean} --- label flips --- reach chance $6\times$
+(synthetic) to $16$--$21\times$ (MNIST) more cheaply. We derive the flip's
+effect on the read-out in closed form, exactly, which makes the membership AUC
+a differentiable function of the flip probability and yields
+$\theta^*=(N+1)\delta_0/2\sum_i a_i$ for the optimal flip. Optimising it lands
+on chance at $\mathrm{AUC}=0.5013\pm0.0005$ on MNIST, reproducibly across every
+seed, at $\varepsilon\approx0.05$; the closed form agrees with the brief's
+REINFORCE estimator and is $7$--$9\times$ faster. Where the required flip
+fraction exceeds one --- as it does on one synthetic architecture --- no label
+flip can cancel the gap even in principle, and we show the optimiser saturating
+against that boundary rather than converging.
+\end{abstract}
+
+\vspace{2pt}
 
 % ===========================================================================
 \section{Problem}
@@ -95,6 +125,16 @@ retrained without the forget group. We report the Mann--Whitney statistic
 so $\mathrm{AUC}=\tfrac12$ means the adversary is guessing. \emph{Both models
 are scored on the same corrupted prompt with the same noise draw}, so
 detecting the edit cannot be mistaken for detecting membership.
+
+The ordering is fixed a priori: we always ask whether $\Mfull$'s residual
+exceeds $\Morac$'s, never the reverse. Because the full model fits
+forget-group queries better its residual is \emph{smaller}, so the baseline
+sits \emph{below} $\tfrac12$ --- equivalently, the $0.375$ reported later is
+$0.625$ under the usual membership-inference orientation. Signal strength is
+$|\mathrm{AUC}-\tfrac12|$ and the unlearning target is $\tfrac12$ under either
+convention. We do not symmetrise: $\max(a,1-a)$ is biased upward under the
+null (it reads $\approx0.54$ when the truth is $0.50$), which would
+manufacture signal at precisely the point these experiments measure.
 
 \textbf{Preservation.} How far the corrupted model has drifted from the
 retrain oracle it is meant to imitate:
@@ -197,17 +237,69 @@ merely inverted). We minimise distance from chance instead:
 \emph{measured} by Algorithm 1, not the closed-form value.
 \end{algbox}
 
-\paragraph{Settings.} $D=4$, $N=31$ context tokens, $S=512$ shadows per
-hypothesis, $P=64$ probe points, 6000 SGD steps at lr $0.005$ with momentum
-$0.9$, three training seeds $\times$ three probe seeds. \emph{Synthetic:}
-three Gaussian groups with trace-normalised covariances of participation ratio
-$1.905/2.381/3.333$, forget the flattest; shared task vector, $y=\omega^{\!\top}x$.
-\emph{MNIST:} digits $1/3/8$ (PR $2.44/3.29/2.93$), forget digit 8, images
-PCA-projected to $D=4$ and trace-normalised, $y=\mathrm{sign}(\beta^{\!\top}x)$
-with $\beta$ drawn per sequence and \emph{shared across classes}. That sharing
-is the load-bearing constraint: if the forget group had its own labelling
-rule, corrupting it would simply delete the answer and any drop in AUC would
-be meaningless.
+\paragraph{Settings.} Complete, for both datasets.
+
+\begin{table}[H]\centering\small
+\begin{tabular}{lll}
+\toprule
+\multicolumn{3}{l}{\textbf{Data --- synthetic}}\\
+\midrule
+input dimension & $D$ & 4\\
+context length & $N$ & 31\\
+groups & & $z_1,z_2,z_3$; forget $z_3$\\
+eigenbasis & & identity, shared across groups\\
+$\Lambda_{z_1}$ eigenvalues & $\mathrm{PR}=1.905$ & $0.70,\,0.15,\,0.10,\,0.05$\\
+$\Lambda_{z_2}$ eigenvalues & $\mathrm{PR}=2.381$ & $0.60,\,0.20,\,0.10,\,0.10$\\
+$\Lambda_{z_3}$ eigenvalues & $\mathrm{PR}=3.333$ & $0.40,\,0.30,\,0.20,\,0.10$\\
+covariances & & trace-normalised, $\operatorname{tr}\Lambda=1$\\
+labels & & $y=\omega^{\!\top}x$, $\omega$ per sequence, shared across groups\\
+data seed & & 0\\
+\addlinespace
+\multicolumn{3}{l}{\textbf{Data --- MNIST}}\\
+\midrule
+input source & & MNIST images, PCA on pooled set to $D=4$\\
+groups & & digits $1,3,8$; forget digit $8$\\
+participation ratios & & $2.44$, $3.29$, $2.93$\\
+centring & & per class; each bank trace-normalised\\
+bank sizes & & $\approx6.7$k, $6.1$k, $5.9$k vectors\\
+labels & & $y=\mathrm{sign}(\beta^{\!\top}x)$, $\beta$ per sequence, shared\\
+\addlinespace
+\multicolumn{3}{l}{\textbf{Probe} (both)}\\
+\midrule
+probe points & $P$ & 64\\
+context token counts & & $10$ / $10$ / $11$, forget group last\\
+query & & drawn from the forget group\\
+probe seeds & & 777, 778, 779\\
+\addlinespace
+\multicolumn{3}{l}{\textbf{Training} (both)}\\
+\midrule
+architectures & & ATTN-S (factored), ATTN-M (merged)\\
+shadow models per hypothesis & $S$ & 512\\
+batch per shadow & & 8\\
+steps & & 6000\\
+optimiser & & SGD, momentum $0.9$\\
+learning rate & & 0.005\\
+gradient clipping & & 5.0, per shadow\\
+initialisation scale & & 0.05\\
+training seeds & & 1, 2, 3\\
+\addlinespace
+\multicolumn{3}{l}{\textbf{Evaluation} (both)}\\
+\midrule
+seed combinations & & $3\times3=9$; all values are medians\\
+bootstrap resamples & & 200\\
+shared-noise repeats & & 16\\
+C1, C2 grid & & 21 points, $\vs\in[0,100]$, log-spaced\\
+C3 grid & & 9 points, $\vs\in[0,10]$\\
+flip grid & & 19 points, $t\in[0,1.25]$\\
+bern grid & & 21 points, $\theta\in[0,1]$\\
+whiten grid & & 9 points, mixture $\in[0,1]$\\
+\bottomrule
+\end{tabular}
+\caption{Complete experimental settings. Everything except the input source
+and the label rule is identical between the two datasets, so the comparison in
+Section 5 changes one thing at a time.}
+\label{tab:settings}
+\end{table}
 
 % ===========================================================================
 \section{Control: does the attack measure anything?}
@@ -230,6 +322,97 @@ below sit at $0.465$ and $0.375$ --- far outside that band. Whatever those
 numbers are, they are not an artifact of the attack code.
 
 % ===========================================================================
+\section{The setup, at a glance}
+
+Before the results, the whole apparatus on one page.
+
+\begin{figure}[H]\centering
+\begin{tikzpicture}[
+  font=\small,
+  box/.style={draw=black!45,rounded corners=2pt,align=center,inner sep=5pt,
+              minimum height=9mm},
+  grey/.style={box,fill=black!4},
+  dark/.style={box,fill=black!12},
+  ar/.style={-{Stealth[length=5pt]},draw=black!55},
+  lbl/.style={font=\scriptsize\itshape,text=black!60}
+]
+
+% ---- stage 1: data
+\node[grey] (g1) at (0,1.5)  {retain $z_1$ / $d_1$};
+\node[grey] (g2) at (0,0.7)  {retain $z_2$ / $d_3$};
+\node[dark] (g3) at (0,-0.1) {\textbf{forget} $z_3$ / $d_8$};
+\node[lbl,above=1pt of g1] {three groups, differing};
+\node[lbl,below=1pt of g3] {only in input covariance};
+
+% ---- stage 2: ensembles
+\node[grey,minimum width=27mm] (full)  at (4.1,1.35)
+  {$M_{\mathrm{full}}$\\[-1pt]\scriptsize trained on all three};
+\node[grey,minimum width=27mm] (orac)  at (4.1,-0.05)
+  {$M_{\mathrm{orac}}$\\[-1pt]\scriptsize retrained without forget};
+\node[lbl] at (4.1,2.35) {512 shadows each, then \textbf{frozen}};
+
+\draw[ar] (g1.east) -- (full.west);
+\draw[ar] (g2.east) -- (full.west);
+\draw[ar] (g3.east) -- (full.west);
+\draw[ar] (g1.east) -- (orac.west);
+\draw[ar] (g2.east) -- (orac.west);
+
+% ---- stage 3: probe
+\node[box,fill=black!4,minimum width=30mm] (probe) at (8.6,0.65)
+  {frozen probe, $P=64$\\[1pt]
+   \scriptsize$[\,10\,][\,10\,][\,\mathbf{11\ forget}\,]\rightarrow$ query};
+\node[lbl,above=2pt of probe,align=center]
+  {corrupt \textbf{only} the forget tokens};
+
+\draw[ar] (full.east) -- ++(0.35,0) |- (probe.west);
+\draw[ar] (orac.east) -- ++(0.35,0) |- (probe.west);
+
+% ---- stage 4: the two readouts
+\node[box,fill=black!4,minimum width=26mm] (auc) at (12.8,1.45)
+  {\textbf{AUC} \ \scriptsize removal\\[-1pt]
+   \scriptsize did the adversary fail?};
+\node[box,fill=black!4,minimum width=26mm] (eps) at (12.8,-0.15)
+  {$\boldsymbol{\varepsilon}$ \ \scriptsize preservation\\[-1pt]
+   \scriptsize how far from the oracle?};
+
+\draw[ar] (probe.east) -- ++(0.3,0) |- (auc.west);
+\draw[ar] (probe.east) -- ++(0.3,0) |- (eps.west);
+
+\node[lbl,align=center] at (12.8,-1.15)
+  {both scored on the \emph{same}\\corrupted prompt};
+
+\end{tikzpicture}
+\caption{\textbf{The pipeline.} Groups differ only in the shape of their input
+covariance; all share one labelling rule. Two shadow ensembles are trained once
+and frozen --- $M_{\mathrm{full}}$ has seen the forget group, $M_{\mathrm{orac}}$
+has not. At evaluation the forget tokens of a frozen probe are corrupted and
+\emph{both} ensembles are scored on that same corrupted prompt, so
+edit-detection cannot masquerade as membership. Each sweep point yields a
+removal number (AUC) and a preservation number ($\varepsilon$). Nothing
+retrains inside the loop.}
+\label{fig:pipeline}
+\end{figure}
+
+\vspace{-4pt}
+\begin{mdframed}[linewidth=0.6pt,linecolor=black!45,backgroundcolor=black!2,
+  innertopmargin=6pt,innerbottommargin=6pt,innerleftmargin=8pt,innerrightmargin=8pt]
+\small
+\textbf{Reading the numbers.}
+\begin{itemize}\setlength{\itemsep}{1pt}\setlength{\parskip}{0pt}\setlength{\topsep}{2pt}
+\item $\mathrm{AUC}=\tfrac12$ is the \emph{goal} --- the adversary guessing. The
+baseline sits \emph{below} $\tfrac12$ because the full model fits the forget
+group better and so ranks under the oracle; $0.375$ is a strong signal, not a
+weak one. Unlearning means driving AUC \emph{up} to $\tfrac12$.
+\item $\varepsilon$ small is good. It is a KL against the retrain oracle, so
+$\varepsilon\!\to\!0$ means ``indistinguishable from having retrained properly''.
+\item \textbf{Cost ratio} $=\varepsilon$ at the closest approach to chance,
+divided by $\varepsilon$ at its own minimum. It is the price of defeating the
+adversary, and it is the number the whole report turns on.
+\item Every value is a median over nine (training seed, probe seed)
+combinations; bands are min--max across those nine.
+\end{itemize}
+\end{mdframed}
+
 \section{Experiment 1 — hand-designed corruption (synthetic)}
 
 \begin{figure}[H]\centering
@@ -343,6 +526,56 @@ cheapest arm in the table by a factor of $\sim\!7$.
 % ===========================================================================
 \section{Experiment 2 — replication on real data}
 
+\subsection*{How MNIST enters the experiment}
+
+MNIST supplies the \emph{input distributions}, not the task. This is not digit
+classification, and the construction is worth stating precisely because it is
+easy to assume otherwise.
+
+\paragraph{Three groups.} Take digits $1$, $3$ and $8$; PCA the \emph{pooled}
+set down to $D=4$ so all three share one feature space; split back by digit;
+centre each class and normalise it so $\operatorname{tr}(\mathrm{Cov})=1$. The
+result is three \emph{banks} of 4-dimensional vectors --- roughly $6.7$k, $6.1$k
+and $5.9$k rows, one per image. A group is therefore a cloud of thousands of
+points, and because the traces are equal the clouds differ only in covariance
+\emph{shape}, summarised by the participation ratio
+$\mathrm{PR}=(\operatorname{tr}\Lambda)^2/\operatorname{tr}(\Lambda^2)$:
+$2.44$, $3.29$, $2.93$. \textbf{Retain $=\{d_1,d_3\}$, forget $=d_8$.} Note the
+forget group is the middle one, not an extreme --- unlike the synthetic setup,
+the geometry here is whatever the data happened to provide.
+
+\paragraph{The labels come from a random plane, not from the digit.} For each
+prompt we draw a fresh $\beta\sim\mathcal N(0,I_4)$ and set
+$y=\mathrm{sign}(\beta^{\!\top}x)$. The label alphabet is fixed at $\pm1$, but
+the labelling \emph{function} changes every prompt, so the same image receives
+different labels in different prompts. A fixed image$\to$digit rule would be
+memorisable in the weights, leaving nothing to learn in context; a fresh
+$\beta$ forces the model to recover the plane from the examples in front of it.
+
+\paragraph{$\beta$ is shared across the three groups.} This is the load-bearing
+constraint. If each digit carried its own labelling rule, corrupting the forget
+group would delete the answer rather than the membership evidence, and a fall
+in AUC would measure nothing. With $\beta$ shared, all three groups obey one
+rule and differ \emph{only} in input geometry --- which is precisely the
+quantity the attack is being asked to detect. It also keeps the retrain oracle
+competent on forget-group queries: it can label a $d_8$ point perfectly well,
+having simply never seen that class's geometry during training. Had the digit
+been the label, the oracle could not answer at all and membership inference
+would collapse into trivial capability detection.
+
+\paragraph{Probe layout.} Each of the $P=64$ prompts is
+\begin{center}\small
+$\underbrace{[\,10\ \text{from } d_1\,][\,10\ \text{from } d_3\,][\,11\ \text{from } d_8\,]}_{N=31\ \text{context tokens}}
+\ \longrightarrow\ \underbrace{1\ \text{more } d_8\ \text{point}}_{\text{query}}$
+\end{center}
+Forget tokens are placed last so they form a contiguous slice, and the
+\emph{query is drawn from the forget group} --- the model is asked about the
+distribution we are trying to make it forget, which is where the membership
+signal appears. Every corruption arm edits only those 11 $d_8$ context tokens:
+never $d_1$, never $d_3$, never the query. Everything else --- the two $512$-model
+ensembles, the attack, the sweep, the shared-noise control --- is unchanged from
+Experiment 1.
+
 \begin{figure}[H]\centering
 \begin{subfigure}{0.46\textwidth}\figorbox{auc_C1_mnist.pdf}{C1 mnist}
 \caption{C1 --- label noise}\end{subfigure}\hfill
@@ -374,15 +607,18 @@ Result~4.}
 \label{fig:e2trade}
 \end{figure}
 
-The synthetic task fixes the input distribution by construction, which makes
-the closed form checkable but the setup artificial. Repeating everything on
-real MNIST features tests whether the conclusion survives.
+\subsection*{Result}
+
+The synthetic task fixes the input distribution by construction, which is what
+makes the closed form checkable but also what makes the setup artificial. The
+question here is whether the conclusion survives when the input clouds are real
+and messy --- genuinely non-Gaussian, correlated, whatever handwritten digits
+happen to be --- rather than designed.
 
 It does, and the gap widens. Baseline AUC is $0.404$ (ATTN-M) and $0.434$
-(ATTN-S) --- a \emph{stronger} membership signal than the synthetic task --- and
-the closed form is if anything more accurate here ($4.6\times10^{-4}$ and
-$3.8\times10^{-4}$ on C1 and C2). Note the forget group is not the flattest
-of the three, so the geometry was not chosen to flatter the result.
+(ATTN-S), a \emph{stronger} membership signal than the synthetic task, and the
+closed form is if anything more accurate here ($4.6\times10^{-4}$ and
+$3.8\times10^{-4}$ mean absolute error on C1 and C2).
 
 \begin{table}[h]\centering\small
 \begin{tabular}{llcccc}
@@ -613,6 +849,109 @@ are post-fix.
 
 \clearpage
 \appendix
+% ===========================================================================
+\section{Derivation of the flip moments and of $\theta^*$}
+\label{app:deriv}
+
+Equation~\eqref{eq:moments} is stated in Section 2 without proof. It is four
+lines.
+
+\paragraph{Step 1 --- the read-out is linear in the context labels.} For linear
+attention performing in-context regression, the prediction at the query is a
+weighted sum of the context labels,
+\[
+\hat y_q \;=\; \frac{1}{N+1}\sum_i y_i\,(c_x\!\cdot\! x_i),
+\qquad c_x = M^{\!\top} x_q .
+\]
+Write $a_i = y_i\,(c_x\!\cdot\!x_i)$ for the signed contribution of context
+token $i$, so that $\hat y_q = \frac{1}{N+1}\sum_i a_i$. Linearity in $y$ is
+the only property used below.
+
+\paragraph{Step 2 --- what the flip does.} The policy replaces $y_i$ by
+$(1-2B_i)y_i$ for $i$ in the forget slice, with $B_i\sim\mathrm{Bern}(\theta)$
+drawn independently. Token $i$'s contribution becomes $(1-2B_i)a_i$, so the
+change in the prediction is
+\[
+\Delta\hat y \;=\; \frac{1}{N+1}\sum_{i\in f}\big[(1-2B_i)-1\big]a_i
+\;=\; \frac{-2}{N+1}\sum_{i\in f} B_i\,a_i .
+\]
+A weighted sum of independent Bernoulli variables.
+
+\paragraph{Step 3 --- its moments.} With $\mathbb E[B_i]=\theta$ and
+$\mathrm{Var}(B_i)=\theta(1-\theta)$, independence gives
+\eqref{eq:moments} immediately:
+\[
+\mathbb E[\Delta\hat y] = \frac{-2\theta}{N+1}\sum_i a_i,
+\qquad
+\mathrm{Var}[\Delta\hat y] = \frac{4\theta(1-\theta)}{(N+1)^2}\sum_i a_i^2 .
+\]
+
+\paragraph{Step 4 --- why this is exact, not first-order.} The context vector
+also carries a label--label block, terms in $\sum_i y_i^2$. Under the flip
+those become $\sum_i (1-2B_i)^2 y_i^2 = \sum_i y_i^2$, because
+$(1-2B)^2 = 1$ for $B\in\{0,1\}$: the block is \emph{unchanged}. No
+second-order correction survives, so the moments hold exactly for every
+$\theta$. Contrast additive noise, $y\to y+\epsilon$, which sends
+$\sum y^2 \to \sum y^2 + 2\sum y\epsilon + \sum\epsilon^2$ and leaves terms
+behind.
+
+\paragraph{Consequence 1 --- a differentiable AUC.} Modelling the two residual
+populations as Gaussian, $\mathrm{AUC} = \Phi\big((\mu_1-\mu_0)/\sqrt{v_1+v_0}\big)$,
+and \eqref{eq:moments} supplies $\mu_1(\theta)$ and $v_1(\theta)$ in closed
+form. $\mathrm{AUC}(\theta)$ is therefore an explicit smooth function and can
+be differentiated directly --- no sampling, no gradient variance. This is
+Algorithm 2.
+
+\paragraph{Consequence 2 --- the optimum.} Setting the corrupted mean gap to
+zero, $\delta_0 + \mathbb E[\Delta\hat y] = 0$, and solving gives
+\eqref{eq:thetastar}, $\theta^* = (N+1)\delta_0 / (2\sum_i a_i)$. The variance
+term does not appear: it sits in the denominator of the AUC and cannot move
+the point at which the numerator vanishes. That is why the deterministic
+\texttt{flip} --- same mean shift, no variance --- must cross $\tfrac12$ at the
+same parameter value, which is the prediction tested in
+Table~\ref{tab:thetastar}.
+
+\paragraph{Verification.} \texttt{tests/verify\_bern.py} draws $4\times10^5$
+Monte Carlo realisations per grid point and recovers both moments to 3--4
+significant figures, and confirms $\sum\tilde y^2 - \sum y^2 = 0$ exactly.
+
+\subsection*{The two estimators, side by side}
+
+\begin{center}\small
+\begin{tabular}{p{0.44\textwidth}p{0.44\textwidth}}
+\toprule
+\textbf{Closed form (Algorithm 2)} & \textbf{REINFORCE (the brief)}\\
+\midrule
+Uses the formula for $\mathrm{AUC}(\theta)$ above and differentiates it.
+& Never uses the formula. Samples masks and infers the slope from
+measurements.\\
+\addlinespace
+Per step: evaluate a formula, autograd, Adam step. No model is run.
+& Per step: draw 32 masks, apply each, run both 512-model ensembles, weight by
+the score $\nabla_\theta\log p_\theta(B) = \sum_i[B_i/\theta - (1-B_i)/(1-\theta)]$.\\
+\addlinespace
+Deterministic --- identical answer every run.
+& Stochastic --- a different answer every run; unbiased but high variance.\\
+\addlinespace
+1.7--2.0\,s.
+& 14.1--14.5\,s.\\
+\addlinespace
+Requires the read-out to be linear in the labels. Lost if the architecture
+changes.
+& Requires only the ability to sample a corruption and measure the result.
+Works for any policy, any model, differentiable or not.\\
+\bottomrule
+\end{tabular}
+\end{center}
+
+The brief's derivation is correct and general; it is simply unnecessary for
+\emph{this} policy, because the model's linearity in the labels lets the
+expectation be computed rather than sampled. Running both is a check on the
+derivation: they optimise the same objective by independent routes, so
+agreement on MNIST (within $0.03$ in $\theta$) is evidence that
+\eqref{eq:moments} is right.
+
+\clearpage
 % ===========================================================================
 \section{Preservation error against corruption strength}
 
