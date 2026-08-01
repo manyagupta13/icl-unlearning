@@ -116,25 +116,31 @@ Two quantities trade off against each other.
 \textbf{Removal.} An adversary sees the sign-aligned residual
 $r=\mathrm{sign}(y)(\hat y - y)$ at a fixed probe point and must decide which
 of two models produced it: $\Mfull$, trained on all three groups, or $\Morac$,
-retrained without the forget group. We report the Mann--Whitney statistic
+retrained without the forget group.
+
+The full model has seen the forget group, so it fits forget-group queries
+better and its residual is \emph{smaller}. Membership-inference convention puts
+the member on the high side of the score, so the membership score is the
+negated residual,
+\begin{equation}
+s \;=\; -r \;=\; -\,\mathrm{sign}(y)\,(\hat y - y),
+\end{equation}
+and we report the Mann--Whitney statistic on $s$:
 \begin{equation}
 \mathrm{AUC}
-= \Pr\big[\,r(\Mfull) > r(\Morac)\,\big] + \tfrac12\Pr\big[\,r(\Mfull)=r(\Morac)\,\big],
+= \Pr\big[\,s(\Mfull) > s(\Morac)\,\big]
++ \tfrac12\Pr\big[\,s(\Mfull)=s(\Morac)\,\big].
 \end{equation}
-so $\mathrm{AUC}=\tfrac12$ means the adversary is guessing. \emph{Both models
-are scored on the same corrupted prompt with the same noise draw}, so
-detecting the edit cannot be mistaken for detecting membership.
+A working attack therefore reads $\mathrm{AUC}>\tfrac12$, chance is
+$\tfrac12$, and unlearning means driving AUC \emph{down} to $\tfrac12$. The
+ordering is fixed in the code rather than chosen per run, so it cannot be tuned
+after the fact.
 
-The score is oriented by the usual membership-inference convention: the
-\emph{member} hypothesis scores higher, so a working attack reads
-$\mathrm{AUC}>\tfrac12$ and chance is $\tfrac12$. Since the full model has seen
-the forget group it fits forget-group queries \emph{better} and its
-sign-aligned residual is smaller, the membership score is the negated
-residual, $-r$. The ordering is fixed in the code rather than chosen per run,
-so it cannot be tuned after the fact. We do not symmetrise: $\max(a,1-a)$ is
-biased upward under the null (it reads $\approx0.54$ when the truth is
-$0.50$), which would manufacture signal at exactly the point these experiments
-measure.
+\emph{Both models are scored on the same corrupted prompt with the same noise
+draw}, so detecting the edit cannot be mistaken for detecting membership. We do
+not symmetrise: $\max(a,1-a)$ is biased upward under the null (it reads
+$\approx0.54$ when the truth is $0.50$), which would manufacture signal at
+exactly the point these experiments measure.
 
 \textbf{Preservation.} How far the corrupted model has drifted from the
 retrain oracle it is meant to imitate:
