@@ -63,28 +63,29 @@ how much does corrupting it actually remove?}}
 
 \begin{abstract}
 \noindent
-We ask whether a group of training examples can be unlearned from a
-linear-attention in-context learner by \emph{corrupting that group inside the
-prompt}, with no weight update, and whether a membership adversary is actually
-defeated or merely blinded. Sweeping six corruption families over four decades
-of strength, on a synthetic Gaussian task and on real MNIST features, across
-nine seed combinations, we find that \textbf{the membership signal lives in the
-first moment of the residual}. Additive-noise corruptions cannot reach it: they
-drive the adversary toward chance only by inflating variance, and a
-shared-noise control attributes $84$--$100\%$ of that movement to masking
-rather than removal. Reaching chance this way costs $762$--$1699\times$ in
-preservation error on the synthetic task and $4375$--$7838\times$ on MNIST.
-Corruptions that move the \emph{mean} --- label flips --- reach chance $6\times$
+We test whether a group of training examples can be unlearned from a
+linear-attention in-context learner by corrupting that group inside the prompt,
+without changing any weights. The question is whether a membership adversary is
+actually defeated or only blinded. We sweep six corruption families over four
+decades of strength, on a synthetic Gaussian task and on MNIST features, across
+nine seed combinations.
+
+The membership signal sits in the first moment of the residual. Additive noise
+cannot reach it. It moves the adversary toward chance by inflating variance
+instead, and a shared-noise control attributes $84$--$100\%$ of that movement to
+masking rather than removal. Reaching chance this way costs $762$--$1699\times$
+in preservation error on the synthetic task and $4375$--$7838\times$ on MNIST.
+
+Corruptions that move the mean, such as label flips, reach chance $6\times$
 (synthetic) to $16$--$21\times$ (MNIST) more cheaply. We derive the flip's
-effect on the read-out in closed form, exactly, which makes the membership AUC
-a differentiable function of the flip probability and yields
-$\theta^*=(N+1)\delta_0/2\sum_i a_i$ for the optimal flip. Optimising it lands
-on chance at $\mathrm{AUC}=0.4987\pm0.0005$ on MNIST, reproducibly across every
-seed, at $\varepsilon\approx0.05$; the closed form agrees with the brief's
-REINFORCE estimator and is $7$--$9\times$ faster. Where the required flip
-fraction exceeds one --- as it does on one synthetic architecture --- no label
-flip can cancel the gap even in principle, and we show the optimiser saturating
-against that boundary rather than converging.
+effect on the read-out exactly. This makes membership AUC a differentiable
+function of the flip probability and gives $\theta^*=(N+1)\delta_0/2\sum_i a_i$
+for the optimal flip. Optimising it reaches
+$\mathrm{AUC}=0.4987\pm0.0005$ on MNIST at $\varepsilon\approx0.05$, with the
+same value on every seed. The closed form agrees with the REINFORCE estimator
+and runs $7$--$9\times$ faster. On one synthetic architecture the required flip
+fraction is above one, so no label flip can cancel the gap at all; there the
+optimiser saturates against that bound instead of converging.
 \end{abstract}
 
 \vspace{2pt}
@@ -94,25 +95,23 @@ against that boundary rather than converging.
 
 \begin{mdframed}[linewidth=0.8pt,linecolor=black!55,backgroundcolor=black!3,
   innertopmargin=7pt,innerbottommargin=7pt,innerleftmargin=9pt,innerrightmargin=9pt]
-\textbf{Thesis.} In this model the membership signal lives in the \emph{first
-moment} of the residual. A corruption therefore erases it only if it moves the
-mean; every variance-based corruption can at best \emph{mask} a signal it
-cannot reach, and pays for the masking in preservation error. The optimal
-corruption is the one that cancels the baseline mean gap --- which we derive in
-closed form, and which correctly predicts the learned flip probability wherever
-the required cancellation is achievable.
+\textbf{Claim.} In this model the membership signal sits in the first moment
+of the residual. A corruption erases it only if it moves the mean. A
+variance-based corruption can mask the signal but cannot reach it, and pays for
+the masking in preservation error. The best corruption is the one that cancels
+the baseline mean gap. We derive it in closed form, and it predicts the learned
+flip probability wherever that cancellation is possible.
 \end{mdframed}
 
 A model is shown a prompt containing examples from three groups and must
-predict the query. One group is to be \emph{forgotten}. We never touch the
-weights --- we corrupt that group's tokens in the prompt and ask whether a
-membership adversary can still tell that the group was trained on.
+predict the query. One group is to be forgotten. We do not touch the weights.
+We corrupt that group's tokens in the prompt and ask whether a membership
+adversary can still tell the group was trained on.
 
-The eight results below are evidence for the boxed claim rather than a list of
-things that did or did not work. The negative results are not failures of
-particular corruptions; they are a map of where the signal is not.
+The results below are evidence for the claim above. The negative ones show
+where the signal is not, which is what makes the positive one interpretable.
 
-Two quantities are in tension throughout.
+Two quantities trade off against each other.
 
 \textbf{Removal.} An adversary sees the sign-aligned residual
 $r=\mathrm{sign}(y)(\hat y - y)$ at a fixed probe point and must decide which
@@ -147,15 +146,14 @@ $(\mu,v)$ over the probe population, so $\varepsilon$ is a Gaussian KL.
 Unlearning is only useful if $\mathrm{AUC}\to\tfrac12$ \emph{and}
 $\varepsilon$ stays small.
 
-\paragraph{Are AUC and $\varepsilon$ the same measurement?} Both are functions
-of the first two moments, so it is fair to ask whether the cost ratios below
-are tautological. They are not, and the reason is the mechanism this report is
-about. AUC depends only on the \emph{standardised} gap
+\paragraph{Are AUC and $\varepsilon$ the same measurement?} Both depend on the
+first two moments, so the cost ratios below could be tautological. They are
+not. AUC depends only on the standardised gap
 $(\mu_1-\mu_0)/\sqrt{v_1+v_0}$ and is invariant to rescaling both populations
-together; $\varepsilon$ is not scale-invariant and grows with the variance
-ratio. A corruption that inflates $v$ therefore drives AUC to $\tfrac12$ while
-$\varepsilon$ keeps climbing --- which is exactly the masking regime, and
-exactly why the two can be traded against each other at all.
+together. $\varepsilon$ is not scale-invariant and grows with the variance
+ratio. So a corruption that inflates $v$ drives AUC to $\tfrac12$ while
+$\varepsilon$ keeps climbing. That is the masking regime, and it is why the two
+can be traded against each other.
 
 \paragraph{Corruptions.} Applied to the forget tokens $(x_f,y_f)$ only:
 \begin{center}\small
@@ -173,12 +171,12 @@ whiten & $x_f \to$ covariance-matched to retain groups & mixing & --- \\
 \end{tabular}
 \end{center}
 
-The last two matter most. \texttt{flip} carries a mean shift with \emph{no}
-variance; \texttt{bern} has the same mean, $\mathbb E[(1-2B)y]=(1-2\theta)y$,
-plus variance $4\theta(1-\theta)y^2$. Writing the predicted AUC as
-$\Phi\!\big((\mu_1-\mu_0)/\sqrt{v_1+v_0}\big)$ makes the difference concrete:
-a zero-mean corruption can only inflate the denominator, so it can never push
-AUC through $\tfrac12$, while a mean shift moves the numerator directly.
+The last two matter most. \texttt{flip} has a mean shift and no variance.
+\texttt{bern} has the same mean, $\mathbb E[(1-2B)y]=(1-2\theta)y$, plus
+variance $4\theta(1-\theta)y^2$. Write the predicted AUC as
+$\Phi\!\big((\mu_1-\mu_0)/\sqrt{v_1+v_0}\big)$. A zero-mean corruption can only
+inflate the denominator, so it can never push AUC through $\tfrac12$. A mean
+shift moves the numerator directly.
 
 % ===========================================================================
 \section{Method}
@@ -203,40 +201,38 @@ gap between the two runs separates \emph{masking} from genuine removal.\\
 report medians.
 \end{algbox}
 
-Nothing retrains inside the loop: the corruption is a prompt-time edit, so a
-whole sweep costs seconds against cached ensembles.
+Nothing retrains inside the loop. The corruption is a prompt-time edit, so a
+whole sweep takes seconds against cached ensembles.
 
-\paragraph{A closed form for the flip.} The brief derives a REINFORCE
-estimator for Stage 2 because AUC is not differentiable through the sampling.
-For this policy that is avoidable. With $a_i = y_i\,(c_x\!\cdot\! x_i)$ over
-the forget slice, the induced change in the read-out has moments
+\paragraph{A closed form for the flip.} AUC is not differentiable through the
+sampling, which is why a REINFORCE estimator is the usual choice. For this
+policy it can be avoided. With $a_i = y_i\,(c_x\!\cdot\! x_i)$ over the forget
+slice, the change in the read-out has moments
 \begin{equation}
 \mathbb E[\Delta\hat y] = \frac{-2\theta}{N+1}\sum_i a_i,
 \qquad
 \mathrm{Var}[\Delta\hat y] = \frac{4\theta(1-\theta)}{(N+1)^2}\sum_i a_i^2 ,
 \label{eq:moments}
 \end{equation}
-\emph{exactly} --- because $(1-2B)^2=1$ leaves the label--label block of the
-context vector untouched. Feeding \eqref{eq:moments} into the Gaussian AUC
-makes $\mathrm{AUC}(\theta)$ an ordinary differentiable function of $\theta$.
-Monte Carlo at $4\times10^5$ trials per point confirms both moments to 3--4
-significant figures.
+exactly, because $(1-2B)^2=1$ leaves the label--label block of the context
+vector unchanged. Substituting \eqref{eq:moments} into the Gaussian AUC makes
+$\mathrm{AUC}(\theta)$ a differentiable function of $\theta$. Monte Carlo at
+$4\times10^5$ trials per point confirms both moments to 3--4 significant
+figures.
 
 \begin{algbox}
 \algtitle{Algorithm 2 — learning the corruption (Stage 2)}
 \small
-The brief writes $\min_\theta \mathrm{AUC}(\theta)+\lambda\|\theta\|$. Every
-measured AUC here is \emph{below} $\tfrac12$, so minimising AUC drives toward
-\emph{more} distinguishability once past $\tfrac12$ --- $0.30$ is as good an
-adversary as $0.70$, merely inverted. We minimise distance from chance
-instead:
+The stated objective is $\min_\theta \mathrm{AUC}(\theta)+\lambda\|\theta\|$.
+Minimising AUC overshoots. Past $\tfrac12$ the attack inverts, and $0.30$ is as
+good an adversary as $0.70$. We minimise distance from chance instead:
 \begin{equation*}
 \min_\theta\ \big(\mathrm{AUC}(\theta)-\tfrac12\big)^2 + \lambda\|\theta\| .
 \end{equation*}
-\textbf{1.} Initialise $\theta$; \ \textbf{2.} $\mathrm{AUC}(\theta)$ from
-\eqref{eq:moments} in closed form; \ \textbf{3.} backprop and Adam step;
-\ \textbf{4.} repeat 400 steps; \ \textbf{5.} report AUC and $\varepsilon$
-\emph{measured} by Algorithm 1, not the closed-form value.
+\textbf{1.} Initialise $\theta$. \ \textbf{2.} Compute $\mathrm{AUC}(\theta)$
+from \eqref{eq:moments}. \ \textbf{3.} Backpropagate, take an Adam step.
+\ \textbf{4.} Repeat for 400 steps. \ \textbf{5.} Report AUC and $\varepsilon$
+as measured by Algorithm 1, not the closed-form value.
 \end{algbox}
 
 \paragraph{Settings.} Complete, for both datasets.
@@ -297,9 +293,9 @@ bern grid & & 21 points, $\theta\in[0,1]$\\
 whiten grid & & 9 points, mixture $\in[0,1]$\\
 \bottomrule
 \end{tabular}
-\caption{Complete experimental settings. Everything except the input source
-and the label rule is identical between the two datasets, so the comparison in
-Section 5 changes one thing at a time.}
+\caption{Experimental settings. Everything except the input source and the
+label rule is the same across the two datasets, so the comparison in Section 6
+changes one thing at a time.}
 \label{tab:settings}
 \end{table}
 
@@ -315,18 +311,18 @@ Section 5 changes one thing at a time.}
 \end{figure}
 
 Give every group the same spectrum and the same eigenbasis. Then $\Mfull$ and
-$\Morac$ trained on the same distribution, there is genuinely no membership
-information, and the pipeline \emph{must} return chance.
+$\Morac$ trained on the same distribution. There is no membership information
+to find, so the pipeline must return chance.
 
 It does: median $\mathrm{AUC}=0.498$ for both architectures across the whole
 grid, spanning $0.4976$--$0.4998$ and $0.4974$--$0.5018$. The real experiments
-below sit at $0.535$ and $0.625$ --- far outside that band. Whatever those
+below sit at $0.535$ and $0.625$, far outside that band. Whatever those
 numbers are, they are not an artifact of the attack code.
 
 % ===========================================================================
 \section{The setup, at a glance}
 
-Before the results, the whole apparatus on one page.
+The whole setup on one page, before the results.
 
 \begin{figure}[H]\centering
 \begin{tikzpicture}[
@@ -385,13 +381,13 @@ Before the results, the whole apparatus on one page.
 
 \end{tikzpicture}
 \caption{\textbf{The pipeline.} Groups differ only in the shape of their input
-covariance; all share one labelling rule. Two shadow ensembles are trained once
-and frozen --- $M_{\mathrm{full}}$ has seen the forget group, $M_{\mathrm{orac}}$
-has not. At evaluation the forget tokens of a frozen probe are corrupted and
-\emph{both} ensembles are scored on that same corrupted prompt, so
-edit-detection cannot masquerade as membership. Each sweep point yields a
-removal number (AUC) and a preservation number ($\varepsilon$). Nothing
-retrains inside the loop.}
+covariance. All share one labelling rule. Two shadow ensembles are trained once
+and frozen: $M_{\mathrm{full}}$ has seen the forget group, $M_{\mathrm{orac}}$
+has not. At evaluation the forget tokens of a frozen probe are corrupted, and
+both ensembles are scored on that same corrupted prompt, so detecting the edit
+cannot be mistaken for detecting membership. Each sweep point gives a removal
+number (AUC) and a preservation number ($\varepsilon$). Nothing retrains inside
+the loop.}
 \label{fig:pipeline}
 \end{figure}
 
@@ -409,8 +405,9 @@ $|\mathrm{AUC}-\tfrac12|$ remains the signal.
 \item $\varepsilon$ small is good. It is a KL against the retrain oracle, so
 $\varepsilon\!\to\!0$ means ``indistinguishable from having retrained properly''.
 \item \textbf{Cost ratio} $=\varepsilon$ at the closest approach to chance,
-divided by $\varepsilon$ at its own minimum. It is the price of defeating the
-adversary, and it is the number the whole report turns on.
+divided by $\varepsilon$ at its own minimum. It measures how far apart those
+two operating points are. A ratio near 1 would mean a clean operating point
+exists.
 \item Every value is a median over nine (training seed, probe seed)
 combinations; bands are min--max across those nine.
 \end{itemize}
@@ -432,10 +429,11 @@ combinations; bands are min--max across those nine.
 \begin{subfigure}{0.46\textwidth}\figorbox{auc_bern_regression.pdf}{bern}
 \caption{bern --- stochastic (mean + variance)}\end{subfigure}
 \caption{\textbf{All six corruption arms, synthetic task.} Membership AUC
-against corruption strength. Bands: min--max over nine seed combinations.
-Thin line: closed-form prediction. Dotted: chance. Note the bottom row:
-\texttt{flip} and \texttt{bern} both rise \emph{through} chance, while none of
-the four arms above them ever reaches it.}
+against corruption strength. Bands give the min--max over nine seed
+combinations. Thin line: closed-form prediction. Dotted: chance. In the bottom
+row,
+\texttt{flip} and \texttt{bern} both fall through chance, while none of the
+four arms above them reaches it.}
 \label{fig:e1}
 \end{figure}
 
@@ -486,11 +484,11 @@ scale and should not be compared across blocks.}
 \caption{C1 --- AUC and $\varepsilon$ against $\vs$}\end{subfigure}\hfill
 \begin{subfigure}{0.46\textwidth}\figorbox{tradeoff_bern_regression.pdf}{tradeoff bern}
 \caption{bern --- AUC and $\varepsilon$ against $\theta$}\end{subfigure}
-\caption{\textbf{The tradeoff, directly.} AUC (solid, left axis) rises toward
-chance while $\varepsilon$ (dashed, right axis, log scale) climbs three
-decades. Vertical markers: the $\varepsilon$ minimum and the closest approach
-to chance. The gap between those two markers \emph{is} the cost ratio in
-Table~\ref{tab:e1} --- and it is visibly narrower for \texttt{bern}.}
+\caption{\textbf{The tradeoff.} AUC (solid, left axis) falls toward chance
+while $\varepsilon$ (dashed, right axis, log scale) climbs three decades.
+Vertical markers show the $\varepsilon$ minimum and the closest approach to
+chance. The gap between those two markers is the cost ratio in
+Table~\ref{tab:e1}, and it is narrower for \texttt{bern}.}
 \label{fig:e1trade}
 \end{figure}
 
@@ -501,83 +499,83 @@ Table~\ref{tab:e1} --- and it is visibly narrower for \texttt{bern}.}
 \caption{bern --- stochastic flip}\end{subfigure}
 \caption{\textbf{The removal/preservation plane.} Each point is one corruption
 strength: removal $\alpha$ rightward, preservation error $\varepsilon$ upward.
-A usable unlearning method would reach the bottom-right. Both arms instead
-turn sharply upward --- past a threshold, further removal is bought almost
-entirely with preservation error.}
+A usable unlearning method would reach the bottom-right. Both arms turn sharply
+upward instead. Past a threshold, further removal is bought almost entirely
+with preservation error.}
 \label{fig:e1frontier}
 \end{figure}
 
-\paragraph{Result 1 (negative).} No arm offers a clean operating point.
-Reaching chance costs between two and three orders of magnitude in
-preservation error. Figure~\ref{fig:e1frontier} shows why in one picture: the
-frontier is flat while removal is cheap, then turns almost vertical.
+\paragraph{Result 1.} No arm has a clean operating point. Reaching chance
+costs two to three orders of magnitude in preservation error.
+Figure~\ref{fig:e1frontier} shows the shape: the frontier is flat while removal
+is cheap, then turns almost vertical.
 
-\paragraph{Result 2.} Most of the apparent progress is \emph{masking}, not
-removal. The shared-noise control attributes $100\%$, $84\%$ and $87\%$ of the
-movement at $\vs=0.32,0.56,1$ to variance inflation hiding the signal, falling
-to $41\%$ only at $\vs=100$. (Below $\vs\approx0.1$ the decomposition is
-undefined --- AUC does not move toward chance there at all --- and no claim
-here rests on that region.)
+\paragraph{Result 2.} Most of the apparent progress is masking, not removal.
+The shared-noise control attributes $100\%$, $84\%$ and $87\%$ of the movement
+at $\vs=0.32,0.56,1$ to variance inflation hiding the signal. Only at $\vs=100$
+does that fall to $41\%$. Below $\vs\approx0.1$ the decomposition is undefined,
+because AUC does not move toward chance there at all. No claim here rests on
+that region.
 
-\paragraph{Result 3.} The arms are not equally bad, and they separate by
-\emph{which moment} they move. The Gaussian arms never go below $0.501$; the
-deterministic flip falls \emph{through} chance to $0.473$ and $0.461$, exactly
-as the $\Phi$ argument above predicts. Whitening barely moves at all
-($0.535\to0.529$). The stochastic flip, carrying both channels, is the
-cheapest arm in the table by a factor of $\sim\!7$.
+\paragraph{Result 3.} The arms are not equally bad. They separate by which
+moment they move. The Gaussian arms never go below $0.501$. The deterministic
+flip falls through chance to $0.473$ and $0.461$, as the $\Phi$ argument
+predicts. Whitening barely moves at all ($0.535\to0.529$). The stochastic flip
+has both channels and is the cheapest arm in the table by a factor of about
+seven.
 
 % ===========================================================================
 \section{Experiment 2 — replication on real data}
 
 \subsection*{How MNIST enters the experiment}
 
-MNIST supplies the \emph{input distributions}, not the task. This is not digit
-classification, and the construction is worth stating precisely because it is
-easy to assume otherwise.
+MNIST supplies the input distributions, not the task. This is not digit
+classification. The construction is stated in full below because it is easy to
+assume otherwise.
 
 \paragraph{Three groups.} Take digits $1$, $3$ and $8$; PCA the \emph{pooled}
 set down to $D=4$ so all three share one feature space; split back by digit;
 centre each class and normalise it so $\operatorname{tr}(\mathrm{Cov})=1$. The
-result is three \emph{banks} of 4-dimensional vectors --- roughly $6.7$k, $6.1$k
-and $5.9$k rows, one per image. A group is therefore a cloud of thousands of
-points, and because the traces are equal the clouds differ only in covariance
-\emph{shape}, summarised by the participation ratio
+result is three banks of 4-dimensional vectors, roughly $6.7$k, $6.1$k and
+$5.9$k rows, one per image. A group is a cloud of thousands of points. Because
+the traces are equal, the clouds differ only in covariance shape, summarised by
+the participation ratio
 $\mathrm{PR}=(\operatorname{tr}\Lambda)^2/\operatorname{tr}(\Lambda^2)$:
-$2.44$, $3.29$, $2.93$. \textbf{Retain $=\{d_1,d_3\}$, forget $=d_8$.} Note the
-forget group is the middle one, not an extreme --- unlike the synthetic setup,
-the geometry here is whatever the data happened to provide.
+$2.44$, $3.29$, $2.93$. Retain $=\{d_1,d_3\}$, forget $=d_8$. The forget group
+is the middle one, not an extreme. Unlike the synthetic setup, the geometry
+here is whatever the data provided.
 
 \paragraph{The labels come from a random plane, not from the digit.} For each
 prompt we draw a fresh $\beta\sim\mathcal N(0,I_4)$ and set
 $y=\mathrm{sign}(\beta^{\!\top}x)$. The label alphabet is fixed at $\pm1$, but
-the labelling \emph{function} changes every prompt, so the same image receives
-different labels in different prompts. A fixed image$\to$digit rule would be
-memorisable in the weights, leaving nothing to learn in context; a fresh
-$\beta$ forces the model to recover the plane from the examples in front of it.
+the labelling function changes every prompt, so the same image gets different
+labels in different prompts. A fixed image-to-digit rule could be memorised in
+the weights, leaving nothing to learn in context. A fresh $\beta$ forces the
+model to recover the plane from the examples in front of it.
 
-\paragraph{$\beta$ is shared across the three groups.} This is the load-bearing
-constraint. If each digit carried its own labelling rule, corrupting the forget
+\paragraph{$\beta$ is shared across the three groups.} This constraint is
+essential. If each digit had its own labelling rule, corrupting the forget
 group would delete the answer rather than the membership evidence, and a fall
 in AUC would measure nothing. With $\beta$ shared, all three groups obey one
-rule and differ \emph{only} in input geometry --- which is precisely the
-quantity the attack is being asked to detect. It also keeps the retrain oracle
-competent on forget-group queries: it can label a $d_8$ point perfectly well,
-having simply never seen that class's geometry during training. Had the digit
-been the label, the oracle could not answer at all and membership inference
-would collapse into trivial capability detection.
+rule and differ only in input geometry, which is the quantity the attack is
+asked to detect. Sharing also keeps the retrain oracle competent on
+forget-group queries. It can label a $d_8$ point correctly, having never seen
+that class's geometry in training. If the digit were the label, the oracle
+could not answer at all, and membership inference would reduce to detecting a
+missing capability.
 
 \paragraph{Probe layout.} Each of the $P=64$ prompts is
 \begin{center}\small
 $\underbrace{[\,10\ \text{from } d_1\,][\,10\ \text{from } d_3\,][\,11\ \text{from } d_8\,]}_{N=31\ \text{context tokens}}
 \ \longrightarrow\ \underbrace{1\ \text{more } d_8\ \text{point}}_{\text{query}}$
 \end{center}
-Forget tokens are placed last so they form a contiguous slice, and the
-\emph{query is drawn from the forget group} --- the model is asked about the
-distribution we are trying to make it forget, which is where the membership
-signal appears. Every corruption arm edits only those 11 $d_8$ context tokens:
-never $d_1$, never $d_3$, never the query. Everything else --- the two $512$-model
-ensembles, the attack, the sweep, the shared-noise control --- is unchanged from
-Experiment 1.
+Forget tokens are placed last so they form a contiguous slice. The query is
+drawn from the forget group, so the model is asked about the distribution we
+are trying to make it forget. That is where the membership signal appears.
+Every corruption arm edits only those 11 $d_8$ context tokens, never $d_1$,
+never $d_3$, never the query. Everything else is unchanged from Experiment 1:
+the two $512$-model ensembles, the attack, the sweep, and the shared-noise
+control.
 
 \begin{figure}[H]\centering
 \begin{subfigure}{0.46\textwidth}\figorbox{auc_C1_mnist.pdf}{C1 mnist}
@@ -593,8 +591,8 @@ Experiment 1.
 \begin{subfigure}{0.46\textwidth}\figorbox{auc_bern_mnist.pdf}{bern mnist}
 \caption{bern --- stochastic}\end{subfigure}
 \caption{\textbf{All six arms on MNIST} (digits $1/3/8$, forget digit 8). Same
-pipeline, real image features. The baselines start lower --- a stronger
-membership signal --- and the same ordering of arms holds.}
+pipeline, real image features. The baselines start further from chance, so the
+membership signal is stronger, and the ordering of the arms is the same.}
 \label{fig:e2}
 \end{figure}
 
@@ -604,19 +602,17 @@ membership signal --- and the same ordering of arms holds.}
 \begin{subfigure}{0.46\textwidth}\figorbox{tradeoff_bern_mnist.pdf}{tradeoff bern mnist}
 \caption{bern --- stochastic flip}\end{subfigure}
 \caption{\textbf{MNIST tradeoff.} The same pair of markers as
-Figure~\ref{fig:e1trade}, on real data. The separation between them is far
-wider for the Gaussian arm here than it was synthetically --- this is
-Result~4.}
+Figure~\ref{fig:e1trade}, on real data. The separation is much wider for the
+Gaussian arm here than on the synthetic task. This is Result~4.}
 \label{fig:e2trade}
 \end{figure}
 
 \subsection*{Result}
 
-The synthetic task fixes the input distribution by construction, which is what
-makes the closed form checkable but also what makes the setup artificial. The
-question here is whether the conclusion survives when the input clouds are real
-and messy --- genuinely non-Gaussian, correlated, whatever handwritten digits
-happen to be --- rather than designed.
+The synthetic task fixes the input distribution by construction. That is what
+makes the closed form checkable, and also what makes the setup artificial. The
+question here is whether the conclusion holds when the input clouds are real:
+non-Gaussian, correlated, and not designed by us.
 
 It does, and the gap widens. Baseline AUC is $0.596$ (ATTN-M) and $0.566$
 (ATTN-S), a \emph{stronger} membership signal than the synthetic task, and the
@@ -645,17 +641,17 @@ corruption.}
 \label{tab:e2}
 \end{table}
 
-\paragraph{Result 4.} The negative result replicates and is \emph{worse} on
-real data: $4375$--$7838\times$ against $762$--$1699\times$ synthetically.
+\paragraph{Result 4.} The negative result replicates, and is worse on real
+data: $4375$--$7838\times$ against $762$--$1699\times$ synthetically.
 
-\paragraph{Result 5.} The flip's advantage replicates but its magnitude does
-not transfer: $5.9$--$6.6\times$ cheaper than the best Gaussian arm on the
-synthetic task, $15.7$--$21.1\times$ on MNIST. The direction is robust; the
-number should never be quoted without naming the dataset.
+\paragraph{Result 5.} The flip's advantage replicates, but its size does not
+transfer: $5.9$--$6.6\times$ cheaper than the best Gaussian arm on the
+synthetic task, $15.7$--$21.1\times$ on MNIST. The direction is stable. The
+number should not be quoted without naming the dataset.
 
-\paragraph{What does \emph{not} explain Result 5.} The obvious hypothesis is
-that the advantage tracks the baseline mean gap --- a larger gap needs a larger
-flip, which costs more. It does not. Writing the advantage as
+\paragraph{What does not explain Result 5.} The obvious hypothesis is that the
+advantage tracks the baseline mean gap: a larger gap needs a larger flip, which
+costs more. It does not. Writing the advantage as
 $\varepsilon_{\text{gauss}}/\varepsilon_{\text{bern}}$ at the closest approach
 to chance (the $\varepsilon_{\min}$ cancels), and the standardised baseline gap
 as $z_0=\Phi^{-1}(\mathrm{AUC}_0)$:
@@ -673,25 +669,25 @@ MNIST     & ATTN-S & $-0.167$ & $1.084 / 0.051$ & $21.1\times$\\
 \end{tabular}
 \end{center}
 
-Across the four cases $|z_0|$ and the advantage correlate at $-0.23$ --- no
-relationship. The driver is visible in the fourth column instead:
-$\varepsilon_{\text{gauss}}$ is comparable everywhere ($0.92$--$1.40$), while
+Across the four cases $|z_0|$ and the advantage correlate at $-0.23$, so there
+is no relationship. The driver is in the fourth column instead.
+$\varepsilon_{\text{gauss}}$ is similar everywhere ($0.92$--$1.40$), while
 $\varepsilon_{\text{bern}}$ is three to five times smaller on MNIST than on the
-synthetic task. The flip is not reaching chance more easily on MNIST; it is
-reaching it \emph{more cheaply}. A natural mechanism --- consistent with these
-numbers but not tested here --- is that a flip's preservation cost scales with
-the label second moment, which is bounded for MNIST's $\pm1$ labels and much
-larger for continuous regression targets. This is a boundary of the moment
-argument: it predicts \emph{where} the optimum sits, not what it costs.
+synthetic task. The flip does not reach chance more easily on MNIST. It reaches
+it more cheaply. One possible mechanism, consistent with these numbers but not
+tested here, is that a flip's preservation cost scales with the label second
+moment. That is bounded for MNIST's $\pm1$ labels and much larger for
+continuous regression targets. Either way, the moment argument predicts where
+the optimum sits, not what it costs.
 
-One thing that does \emph{not} replicate: synthetically, $\varepsilon$ is
-minimised at non-zero corruption --- a little corruption moves the model toward
-the oracle. On MNIST the minimum sits at $\vs\approx0$ for every arm.
+One thing does not replicate. On the synthetic task $\varepsilon$ is minimised
+at non-zero corruption, so a little corruption moves the model toward the
+oracle. On MNIST the minimum sits at $\vs\approx0$ for every arm.
 
 % ===========================================================================
 \section{Experiment 3 — learning the corruption}
 
-Experiment 1 swept $\theta$ by hand. Here Algorithm 2 optimises it.
+Experiment 1 swept $\theta$ by hand. Algorithm 2 optimises it instead.
 
 \begin{table}[h]\centering\small
 \begin{tabular}{llcccc}
@@ -708,7 +704,8 @@ synthetic  & ATTN-M & 0.850 & 0.5106 (0.199) & 0.016 & 0.5386\\
 \bottomrule
 \end{tabular}
 \caption{Both gradient estimators. The closed form takes 1.7--2.0\,s against
-14.1--14.5\,s for REINFORCE --- $7$--$9\times$ faster, and deterministic.}
+14.1--14.5\,s for REINFORCE, so $7$--$9\times$ faster, and it is
+deterministic.}
 \label{tab:e3}
 \end{table}
 
@@ -727,38 +724,38 @@ synthetic & ATTN-M & $0.739\pm0.138$ & $0.5021\pm0.0064$ & $0.139\pm0.081$\\
 \label{tab:e3seeds}
 \end{table}
 
-\paragraph{Result 6 (positive).} On MNIST the learned flip lands at
-$\mathrm{AUC}=0.4987\pm0.0005$ --- chance, to within a twentieth of a
-percentage point, reproducibly across every seed --- at $\varepsilon\approx0.05$,
-against $\varepsilon\approx1.0$ for Gaussian noise to reach the same place.
-Three independent routes agree: the closed form gives $\theta=0.678/0.753$, a
-41-point grid search gives $0.675/0.725$, and REINFORCE lands within $0.03$.
+\paragraph{Result 6.} On MNIST the learned flip reaches
+$\mathrm{AUC}=0.4987\pm0.0005$ at $\varepsilon\approx0.05$. That is chance to
+within a twentieth of a percentage point, on every seed. Gaussian noise needs
+$\varepsilon\approx1.0$ to reach the same place. Three independent routes
+agree: the closed form gives $\theta=0.678/0.753$, a 41-point grid search gives
+$0.675/0.725$, and REINFORCE lands within $0.03$.
 
-\paragraph{Result 7 (limitation).} It does not transfer to the synthetic task.
-There the two estimators diverge wildly --- $\theta=0.850$ versus $0.016$ on
-ATTN-M --- and neither reaches chance ($0.5106$ and $0.5386$). The closed form's Bernoulli error is
-$3.2\times10^{-3}$ there against $1.1\times10^{-3}$ on MNIST. Result 9 below
-gives the reason, and it is structural rather than numerical.
+\paragraph{Result 7.} This does not transfer to the synthetic task. There the
+two estimators disagree sharply, $\theta=0.850$ against $0.016$ on ATTN-M, and
+neither reaches chance ($0.5106$ and $0.5386$). The closed form's Bernoulli
+error is $3.2\times10^{-3}$ there against $1.1\times10^{-3}$ on MNIST. Result 9
+gives the reason, which is structural rather than numerical.
 
-\paragraph{Result 8 --- and a closed form for $\theta^*$.} The optimum flips
-$68$--$82\%$ of forget labels: not a small perturbation, but the
-\emph{mean-compensating} solution. Setting the corrupted mean gap to zero,
+\paragraph{Result 8, and a closed form for $\theta^*$.} The optimum flips
+$68$--$82\%$ of forget labels. This is not a small perturbation. It is the
+mean-compensating solution. Setting the corrupted mean gap to zero,
 $\delta_0 + \mathbb E[\Delta\hat y] = 0$ with $\mathbb E[\Delta\hat y]$ from
 \eqref{eq:moments}, gives
 \begin{equation}
 \theta^* \;=\; \frac{(N+1)\,\delta_0}{2\sum_i a_i},
 \label{eq:thetastar}
 \end{equation}
-where $\delta_0$ is the baseline mean gap. Note what \eqref{eq:thetastar} does
-\emph{not} contain: the variance. The extra spread $4\theta(1-\theta)\sum a_i^2$
-sits in the denominator of the AUC and cannot move the point where the
-numerator vanishes.
+where $\delta_0$ is the baseline mean gap. Equation \eqref{eq:thetastar} has no
+variance term. The extra spread $4\theta(1-\theta)\sum a_i^2$ sits in the
+denominator of the AUC and cannot move the point where the numerator
+vanishes.
 
-That yields a prediction testable on data already in hand. The deterministic
-\texttt{flip} at strength $t$ has the \emph{same} mean shift and no variance at
-all, so its AUC must cross $\tfrac12$ at exactly $t=\theta^*$. Reading that
-crossing off the \texttt{flip} sweep predicts the learned $\theta^*$ with no
-fitting:
+This gives a prediction we can test on data already collected. The
+deterministic \texttt{flip} at strength $t$ has the same mean shift and no
+variance, so its AUC must cross $\tfrac12$ at exactly $t=\theta^*$. Reading
+that crossing off the \texttt{flip} sweep predicts the learned $\theta^*$ with
+no fitting:
 
 \begin{table}[H]\centering\small
 \begin{tabular}{llccc}
@@ -772,83 +769,62 @@ synthetic  & ATTN-M & 0.895 & 0.708 & $0.739\pm0.138$\\
 synthetic  & ATTN-S & \textbf{1.011} & never & $0.895\pm0.091$\\
 \bottomrule
 \end{tabular}
-\caption{Predicted versus realised flip fraction. On MNIST the three columns
-agree to within $0.02$ --- the closed form predicts the learned policy. On the
+\caption{Predicted against realised flip fraction. On MNIST the three columns
+agree to within $0.02$, so the closed form predicts the learned policy. On the
 synthetic task they do not.}
 \label{tab:thetastar}
 \end{table}
 
-\paragraph{Result 9 --- why the synthetic task fails, structurally.} The last
-row of Table~\ref{tab:thetastar} is the explanation for Result 7. Cancelling
-the baseline gap on synthetic ATTN-S requires $t=1.011$. But $\theta$ is a
-\emph{probability}: $\theta\le1$. \textbf{The required mean cancellation lies
-outside the range a label flip can deliver}, so \texttt{bern} cannot reach
-chance there in principle --- and indeed it never does, bottoming out at $0.5021$.
-The optimiser returning $\theta^*=0.895\pm0.091$ is not converging badly; it is
-saturating against a boundary. Synthetic ATTN-M sits just inside the feasible
-region and is correspondingly noisy.
+\paragraph{Result 9: why the synthetic task fails.} The last row of
+Table~\ref{tab:thetastar} explains Result 7. Cancelling the baseline gap on
+synthetic ATTN-S requires $t=1.011$. But $\theta$ is a probability, so
+$\theta\le1$. The required mean cancellation is outside the range a label flip
+can deliver, so \texttt{bern} cannot reach chance there at all. It never does,
+bottoming out at $0.5021$. The optimiser returning $\theta^*=0.895\pm0.091$ is
+not converging badly. It is saturating against a bound. Synthetic ATTN-M sits
+just inside the feasible region, and is correspondingly noisy.
 
-This also explains the estimator disagreement quantitatively. Pushing
-$\theta^*$ toward 1 drives the flip's mean shift --- a sum of $n_f=11$ Bernoulli
-terms --- into its degenerate corner, where the variance vanishes and the
-standardised third moment diverges. At the fitted optima the skew of that sum
-is $-0.37$ and $-0.49$ on MNIST against $-0.33$ and $-0.78$ on synthetic, and
-on the worst synthetic seed ($\theta=0.964$) it reaches $-1.50$ with excess
-kurtosis $+2.07$. The Gaussian AUC underlying \eqref{eq:moments} is therefore
-weakest exactly where the synthetic optimum is forced to sit. (These are
-equal-weight values; unequal $a_i$ inflate them further, and the synthetic
-task's continuous labels give a much wider spread of $a_i$ than MNIST's
-$\pm1$.)
+This also explains the estimator disagreement. Pushing $\theta^*$ toward 1
+drives the flip's mean shift, a sum of $n_f=11$ Bernoulli terms, into its
+degenerate corner, where the variance vanishes and the standardised third
+moment diverges. At the fitted optima the skew of that sum is $-0.37$ and
+$-0.49$ on MNIST, against $-0.33$ and $-0.78$ on synthetic. On the worst
+synthetic seed ($\theta=0.964$) it reaches $-1.50$, with excess kurtosis
+$+2.07$. So the Gaussian AUC behind \eqref{eq:moments} is weakest exactly where
+the synthetic optimum is forced to sit. These are equal-weight values. Unequal
+$a_i$ make the skew larger, and the synthetic task's continuous labels give a
+much wider spread of $a_i$ than MNIST's $\pm1$.
 
 % ===========================================================================
-\section{Summary}
+\section{Limitations}
 
-\begin{center}\small
-\begin{tabular}{clc}
-\toprule
-\# & finding & evidence\\
-\midrule
-\multicolumn{3}{l}{\emph{Where the signal is not --- variance cannot reach it}}\\
-1 & No corruption family reaches chance cheaply & $116$--$7838\times$ in $\varepsilon$\\
-2 & Most movement toward chance is masking, not removal & shared-noise control, $84$--$100\%$\\
-3 & Arms separate by which moment they move & only mean-shifting arms cross $\tfrac12$\\
-4 & The negative result is worse on real data & $4375$--$7838\times$ on MNIST\\
-\addlinespace
-\multicolumn{3}{l}{\emph{Where it is --- the first moment, and it can be computed}}\\
-8 & The optimum is mean-compensating & flips $68$--$82\%$ of labels\\
- & \quad and is predicted in closed form by \eqref{eq:thetastar} & agrees to $0.02$ on MNIST\\
-6 & A learned flip does reach chance, on MNIST & $0.4987\pm0.0005$, $\varepsilon\approx0.05$\\
-\addlinespace
-\multicolumn{3}{l}{\emph{Where the argument stops}}\\
-9 & Synthetic ATTN-S needs $\theta^*>1$ --- infeasible & \texttt{flip} crosses at $t=1.011$\\
-7 & \dots so Stage 2 saturates and the estimators diverge & skew $-1.50$ at the worst seed\\
-5 & Cost, unlike position, is not predicted by the gap & $\mathrm{corr}(|z_0|,\text{adv})=-0.23$\\
-\bottomrule
-\end{tabular}
-\end{center}
-
-\paragraph{In one sentence.} Context-level unlearning cannot remove group
-membership, only mask it --- unless the corruption moves the exact moment the
-signal lives in, which for this model is the mean; the optimal such corruption
-is the one cancelling the baseline gap, it is available in closed form, and it
-works wherever that cancellation is achievable at all.
-
-\paragraph{Scope.} This is \emph{group-level} unlearning: the adversary
-detects whether a distribution was trained on, not whether a specific example
-was. Two datasets, one architecture family, scalar policy only --- the
+\paragraph{Scope.} This is group-level unlearning. The adversary detects
+whether a distribution was in training, not whether a particular example was.
+Two datasets, one architecture family, and only the scalar policy. The
 conditional policy $p_\theta(\cdot\mid x_f,y_f)$ is implemented but not
-reported here. Fixing Result 7 by polishing the closed-form optimum against
-measured AUC is the obvious next step.
+reported.
 
-\paragraph{Two bugs found and fixed.} Stage 2's measurement originally treated
-the flip probability $\theta$ as if it were a realised draw, computing
-$(1-2\theta)y_f$ --- which is the deterministic \texttt{flip} arm, not the
-stochastic one. It was caught by cross-checking against Experiment 1: the
-Stage 2 grid search reproduced the \texttt{flip} curve exactly ($0.4751$)
-instead of the \texttt{bern} curve ($0.4821$). Separately, the sweep script
-hardcoded an eigenbasis field that MNIST specs do not have, so the MNIST
-sweep crashed on bookkeeping after computing every result. All numbers above
-are post-fix.
+\paragraph{Where the method stops working.} Result 9 gives a hard boundary: if
+cancelling the baseline gap needs a flip fraction above one, no label flip can
+do it. Synthetic ATTN-S is on the wrong side of that boundary. The obvious
+next step is to polish the closed-form optimum against measured AUC, which
+would help where the Gaussian approximation is weak but cannot help where the
+optimum is infeasible.
+
+\paragraph{What the moment argument does not predict.} It predicts where the
+optimum sits, not what it costs. Result 5 shows the flip's cost advantage
+varies by a factor of three between datasets and does not track the baseline
+gap.
+
+\paragraph{Two bugs, found and fixed.} Both were caught by cross-checking
+Stage 2 against the Stage 1 sweep. First, Stage 2's measurement treated the
+flip probability $\theta$ as a realised draw and computed $(1-2\theta)y_f$.
+That is the deterministic \texttt{flip} arm, not the stochastic one. The
+symptom was that the Stage 2 grid search reproduced the \texttt{flip} curve
+exactly ($0.4751$) rather than the \texttt{bern} curve ($0.4821$). Second, the
+sweep script read an eigenbasis field that MNIST configs do not have, so the
+MNIST sweep raised \texttt{KeyError} after computing every result. All numbers
+here are from after both fixes.
 
 \clearpage
 \appendix
@@ -856,8 +832,8 @@ are post-fix.
 \section{Derivation of the flip moments and of $\theta^*$}
 \label{app:deriv}
 
-Equation~\eqref{eq:moments} is stated in Section 2 without proof. It is four
-lines.
+Equation~\eqref{eq:moments} is stated in Section 2 without proof. The
+derivation is four steps.
 
 \paragraph{Step 1 --- the read-out is linear in the context labels.} For linear
 attention performing in-context regression, the prediction at the query is a
@@ -867,8 +843,8 @@ weighted sum of the context labels,
 \qquad c_x = M^{\!\top} x_q .
 \]
 Write $a_i = y_i\,(c_x\!\cdot\!x_i)$ for the signed contribution of context
-token $i$, so that $\hat y_q = \frac{1}{N+1}\sum_i a_i$. Linearity in $y$ is
-the only property used below.
+token $i$, so $\hat y_q = \frac{1}{N+1}\sum_i a_i$. Linearity in $y$ is the
+only property used below.
 
 \paragraph{Step 2 --- what the flip does.} The policy replaces $y_i$ by
 $(1-2B_i)y_i$ for $i$ in the forget slice, with $B_i\sim\mathrm{Bern}(\theta)$
@@ -891,28 +867,27 @@ $\mathrm{Var}(B_i)=\theta(1-\theta)$, independence gives
 
 \paragraph{Step 4 --- why this is exact, not first-order.} The context vector
 also carries a label--label block, terms in $\sum_i y_i^2$. Under the flip
-those become $\sum_i (1-2B_i)^2 y_i^2 = \sum_i y_i^2$, because
-$(1-2B)^2 = 1$ for $B\in\{0,1\}$: the block is \emph{unchanged}. No
-second-order correction survives, so the moments hold exactly for every
-$\theta$. Contrast additive noise, $y\to y+\epsilon$, which sends
+those become $\sum_i (1-2B_i)^2 y_i^2 = \sum_i y_i^2$, because $(1-2B)^2 = 1$
+for $B\in\{0,1\}$. The block is unchanged, so no second-order correction
+survives and the moments hold exactly for every $\theta$. Compare additive
+noise, $y\to y+\epsilon$, which sends
 $\sum y^2 \to \sum y^2 + 2\sum y\epsilon + \sum\epsilon^2$ and leaves terms
 behind.
 
 \paragraph{Consequence 1 --- a differentiable AUC.} Modelling the two residual
 populations as Gaussian, $\mathrm{AUC} = \Phi\big((\mu_1-\mu_0)/\sqrt{v_1+v_0}\big)$,
 and \eqref{eq:moments} supplies $\mu_1(\theta)$ and $v_1(\theta)$ in closed
-form. $\mathrm{AUC}(\theta)$ is therefore an explicit smooth function and can
-be differentiated directly --- no sampling, no gradient variance. This is
+form. So $\mathrm{AUC}(\theta)$ is an explicit smooth function and can be
+differentiated directly, with no sampling and no gradient variance. That is
 Algorithm 2.
 
 \paragraph{Consequence 2 --- the optimum.} Setting the corrupted mean gap to
 zero, $\delta_0 + \mathbb E[\Delta\hat y] = 0$, and solving gives
 \eqref{eq:thetastar}, $\theta^* = (N+1)\delta_0 / (2\sum_i a_i)$. The variance
-term does not appear: it sits in the denominator of the AUC and cannot move
-the point at which the numerator vanishes. That is why the deterministic
-\texttt{flip} --- same mean shift, no variance --- must cross $\tfrac12$ at the
-same parameter value, which is the prediction tested in
-Table~\ref{tab:thetastar}.
+term does not appear. It sits in the denominator of the AUC and cannot move the
+point where the numerator vanishes. That is why the deterministic \texttt{flip},
+which has the same mean shift and no variance, must cross $\tfrac12$ at the
+same parameter value. Table~\ref{tab:thetastar} tests that prediction.
 
 \paragraph{Verification.} \texttt{tests/verify\_bern.py} draws $4\times10^5$
 Monte Carlo realisations per grid point and recovers both moments to 3--4
@@ -947,21 +922,20 @@ Works for any policy, any model, differentiable or not.\\
 \end{tabular}
 \end{center}
 
-The brief's derivation is correct and general; it is simply unnecessary for
-\emph{this} policy, because the model's linearity in the labels lets the
-expectation be computed rather than sampled. Running both is a check on the
-derivation: they optimise the same objective by independent routes, so
-agreement on MNIST (within $0.03$ in $\theta$) is evidence that
-\eqref{eq:moments} is right.
+The REINFORCE derivation is correct and general. It is just unnecessary for
+this policy, because the model's linearity in the labels lets the expectation
+be computed rather than sampled. Running both checks the derivation: they
+optimise the same objective by independent routes, so their agreement on MNIST,
+within $0.03$ in $\theta$, is evidence that \eqref{eq:moments} is right.
 
 \clearpage
 % ===========================================================================
 \section{Preservation error against corruption strength}
 
-Figures \ref{fig:e1} and \ref{fig:e2} plot removal. These plot the other side
-of the ledger: how $\varepsilon$ grows as the corruption is turned up. The
-minimum of each curve is the $\varepsilon_{\min}$ column of
-Tables~\ref{tab:e1} and \ref{tab:e2}.
+Figures \ref{fig:e1} and \ref{fig:e2} plot removal. These plot the other side:
+how $\varepsilon$ grows as the corruption is turned up. The minimum of each
+curve is the $\varepsilon_{\min}$ column of Tables~\ref{tab:e1} and
+\ref{tab:e2}.
 
 \begin{figure}[H]\centering
 \begin{subfigure}{0.32\textwidth}\figorbox{eps_C1_regression.pdf}{eps C1}
@@ -976,9 +950,9 @@ Tables~\ref{tab:e1} and \ref{tab:e2}.
 \caption{flip}\end{subfigure}\hfill
 \begin{subfigure}{0.32\textwidth}\figorbox{eps_bern_regression.pdf}{eps bern}
 \caption{bern}\end{subfigure}
-\caption{Preservation error, synthetic task. Note the dip below the
-zero-corruption value in several arms --- mild corruption moves the unlearned
-model \emph{toward} the oracle before the cost takes over.}
+\caption{Preservation error, synthetic task. Several arms dip below the
+zero-corruption value: mild corruption moves the unlearned model toward the
+oracle before the cost takes over.}
 \end{figure}
 
 \begin{figure}[H]\centering
@@ -994,8 +968,8 @@ model \emph{toward} the oracle before the cost takes over.}
 \caption{flip}\end{subfigure}\hfill
 \begin{subfigure}{0.32\textwidth}\figorbox{eps_bern_mnist.pdf}{eps bern mnist}
 \caption{bern}\end{subfigure}
-\caption{Preservation error, MNIST. The dip is absent here --- the minimum sits
-at zero corruption for every arm.}
+\caption{Preservation error, MNIST. The dip is absent. The minimum sits at
+zero corruption for every arm.}
 \end{figure}
 
 \clearpage
@@ -1004,7 +978,7 @@ at zero corruption for every arm.}
 
 Each point is one corruption strength, plotted as removal $\alpha$ (rightward,
 larger better) against preservation error $\varepsilon$ (upward, smaller
-better). A method with a clean operating point would produce a frontier that
+better). A method with a clean operating point would give a frontier that
 extends to the right while staying low. None does.
 
 \begin{figure}[H]\centering
