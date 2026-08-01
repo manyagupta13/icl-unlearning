@@ -816,6 +816,20 @@ optimum sits, not what it costs. Result 5 shows the flip's cost advantage
 varies by a factor of three between datasets and does not track the baseline
 gap.
 
+\paragraph{Code and reproduction.} All code, configs and figures are at
+\url{https://github.com/manyagupta13/icl-unlearning} (branch
+\texttt{followup-experiments}). Every number in this report comes from
+\texttt{artifacts/results\_regression.csv}, \texttt{artifacts/results\_mnist.csv}
+and the Stage 2 JSONs, and each is checked against those files
+programmatically. The full pipeline is four commands:
+\begin{center}\small\ttfamily
+train\_ensembles.py $\to$ run\_auc\_sweep.py $\to$ plot\_*.py $\to$ stage2\_optimise.py
+\end{center}
+each taking \texttt{--config configs/\{regression,mnist\}.yaml}. Only the first
+needs a GPU. The correctness checks in \texttt{tests/} run on CPU;
+\texttt{verify\_bern.py} is the one that matters for
+Equation~\eqref{eq:moments}.
+
 \paragraph{Two bugs, found and fixed.} Both were caught by cross-checking
 Stage 2 against the Stage 1 sweep. First, Stage 2's measurement treated the
 flip probability $\theta$ as a realised draw and computed $(1-2\theta)y_f$.
