@@ -1,10 +1,12 @@
 # Porting the audit to MNIST: design note
 
-**Status: not built. This is the design and the go/no-go criterion.** Written
-2026-07-29, while the 16-config synthetic batch is still running.
+*Working note, written 2026-07-29 before the MNIST experiments were built. The
+design below is what was implemented; results are in `report/paper.pdf` §6.
+Kept as a record of the reasoning, including the go/no-go criterion set in
+advance.*
 
-Goal, in the user's words: *an MNIST classifier where we make it forget one
-group (one digit) in context, and measure AUC.*
+Goal: an MNIST classifier where one group (one digit) is forgotten in context,
+with AUC measured against a retrain oracle.
 
 ---
 

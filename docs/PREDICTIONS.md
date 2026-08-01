@@ -1,6 +1,8 @@
 # Pre-registration: what the three follow-up experiments should show
 
-**Written 2026-07-29, before any of the 16 generated configs were run.**
+*Written 2026-07-29, before any of the 16 generated configs were run, and left
+unedited afterwards. The point of the document is that it was committed before
+the results existed.*
 
 NOTES.md §4g asks for the strong version of the N/D experiment: *"Predict the
 D-dependence analytically, write it down, then run."* This is that document.

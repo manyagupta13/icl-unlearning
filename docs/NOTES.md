@@ -1,7 +1,12 @@
 # What stands between this repo and a publishable AUC-vs-σ² result
 
-Written against the state of the repo after the classification strip. Ordered
-by how likely each item is to be the thing a referee kills you on.
+*Working notes, added to as the project went along. Ordered by how likely each
+item was to be the thing that sinks the result. Some entries are superseded —
+the MNIST port and the Stage 2 policy were both built after this was written,
+and the AUC orientation has since changed. `report/paper.pdf` and the README
+are the current statements; this is kept for the reasoning and the dead ends.*
+
+Written against the state of the repo after the classification strip.
 
 ---
 
@@ -652,7 +657,7 @@ before trusting the refactor.** What *was* checked:
       within CI on real data**; that check is the whole value of the overlay
 - [x] removal/preservation tradeoff quantified (§4f i)
 - [x] oracle control for the per-example attack (§4f ii)
-- [x] continuous PR knob implemented (§4g) — configs generated, not yet run
+- [x] continuous PR knob implemented (§4g) — configs generated and run
 - [x] **closed-form D-dependence written down BEFORE the runs** — `PREDICTIONS.md`,
       dated 2026-07-29, 12 numbered predictions with a scoring table in §8.
       Spectral asymptotics verified in `scripts/check_spectral_scaling.py`,
