@@ -21,10 +21,10 @@ form.
 
 | | synthetic (Gaussian groups) | MNIST (digits 1/3/8) |
 |---|---|---|
-| Baseline membership AUC | 0.465 / 0.375 | 0.404 / 0.434 |
+| Baseline membership AUC | 0.535 / 0.625 | 0.596 / 0.566 |
 | Cost to reach chance, Gaussian noise | 762–1699× | 4375–7838× |
 | Cost to reach chance, stochastic flip | **116–234×** | **279–337×** |
-| Learned flip, AUC achieved | 0.4926 ± 0.0143 | **0.5013 ± 0.0005** |
+| Learned flip, AUC achieved | 0.5074 ± 0.0143 | **0.4987 ± 0.0005** |
 
 Two architectures (ATTN-S, ATTN-M), 512 shadow models per hypothesis, medians
 over 3 training seeds × 3 probe seeds. "Cost" is ε at the closest approach to
@@ -95,10 +95,12 @@ guessing. Both hypotheses are scored on the *same* corrupted prompt with the
 same noise draw, so detecting the edit cannot be mistaken for detecting
 membership.
 
-> **AUC below 0.5 is not a bug.** `membership_auc(H1, H0)` is directional. The
-> full model fits the forget group better, so it ranks *below* the oracle and
-> the baseline sits under 0.5. An AUC of 0.375 is a strong signal — inverted,
-> it is 0.625. Unlearning means driving AUC *up to* 0.5, not down.
+> **Orientation.** The score is oriented so the *member* hypothesis scores
+> higher — the usual membership-inference convention — so a working attack
+> reads AUC > 0.5 and chance is 0.5. Since the full model fits forget-group
+> queries better (smaller residual), the membership score is the negated
+> residual; see `audit.membership_score`. Unlearning means driving AUC *down
+> to* 0.5. Going below 0.5 is not success either: the attack has inverted.
 
 > The observable must be **sign-aligned**. Ranking raw `ŷ` makes the
 > probe-averaged AUC cancel to ~0.5 regardless of the true signal (0.79 on

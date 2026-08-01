@@ -161,5 +161,7 @@ def predicted_auc(M_full: torch.Tensor, M_oracle: torch.Tensor, probe: Probe,
         stats.append((mu, v))
 
     (mu1, v1), (mu0, v0) = stats
-    z = (mu1 - mu0) / torch.sqrt((v1 + v0).clamp_min(1e-30))
+    # negated: the membership score is -residual so the member sits on
+    # the high side (audit.membership_score)
+    z = (mu0 - mu1) / torch.sqrt((v1 + v0).clamp_min(1e-30))
     return float(_normal_cdf(z).mean())

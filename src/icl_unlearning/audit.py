@@ -40,9 +40,12 @@ Two families, deliberately kept side by side because they can disagree:
 
 Conventions
   - AUC is computed per probe point across the shadow axis, then averaged.
-  - AUC is returned RAW. AUC < 0.5 means the attacker's statistic is inverted,
-    which is not success. Use `symmetrised_auc` if you want the corrected
-    quantity -- but see the warning on its docstring about aggregation order.
+  - The attack score is ORIENTED so the member hypothesis scores higher, the
+    membership-inference convention: a working attack reads AUC > 0.5 and
+    chance is 0.5. See `membership_score` for why that needs a negation.
+  - AUC is otherwise RAW, not symmetrised. `symmetrised_auc` exists but is
+    biased upward under the null (see its docstring), which would manufacture
+    signal at exactly the point these experiments measure.
 """
 from __future__ import annotations
 
@@ -50,6 +53,24 @@ import torch
 
 
 # ------------------------------------------------------------ membership AUC
+
+def membership_score(observable: torch.Tensor) -> torch.Tensor:
+    """
+    Orient an observable so the MEMBER hypothesis scores higher.
+
+    The full model has seen the forget group, so it fits forget-group queries
+    BETTER and its sign-aligned residual is SMALLER than the retrain oracle's.
+    Membership-inference convention puts members on the high side, so the
+    membership score is the negated observable.
+
+    Without this, membership_auc(full, oracle) returns 1 - AUC: still unbiased
+    at 0.5 and carrying identical information, but inverted relative to how the
+    literature reports it, so a working attack would read 0.375 not 0.625.
+
+    Applied identically to the analytic AUC in theory.py and policy.py (see the
+    sign of `z`), so measurement and closed form stay comparable.
+    """
+    return -observable
 
 def _auc_1d(pos: torch.Tensor, neg: torch.Tensor) -> torch.Tensor:
     """Mann-Whitney AUC with tie correction. pos, neg are 1-D."""

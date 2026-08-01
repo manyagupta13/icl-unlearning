@@ -79,7 +79,7 @@ Corruptions that move the \emph{mean} --- label flips --- reach chance $6\times$
 effect on the read-out in closed form, exactly, which makes the membership AUC
 a differentiable function of the flip probability and yields
 $\theta^*=(N+1)\delta_0/2\sum_i a_i$ for the optimal flip. Optimising it lands
-on chance at $\mathrm{AUC}=0.5013\pm0.0005$ on MNIST, reproducibly across every
+on chance at $\mathrm{AUC}=0.4987\pm0.0005$ on MNIST, reproducibly across every
 seed, at $\varepsilon\approx0.05$; the closed form agrees with the brief's
 REINFORCE estimator and is $7$--$9\times$ faster. Where the required flip
 fraction exceeds one --- as it does on one synthetic architecture --- no label
@@ -126,15 +126,16 @@ so $\mathrm{AUC}=\tfrac12$ means the adversary is guessing. \emph{Both models
 are scored on the same corrupted prompt with the same noise draw}, so
 detecting the edit cannot be mistaken for detecting membership.
 
-The ordering is fixed a priori: we always ask whether $\Mfull$'s residual
-exceeds $\Morac$'s, never the reverse. Because the full model fits
-forget-group queries better its residual is \emph{smaller}, so the baseline
-sits \emph{below} $\tfrac12$ --- equivalently, the $0.375$ reported later is
-$0.625$ under the usual membership-inference orientation. Signal strength is
-$|\mathrm{AUC}-\tfrac12|$ and the unlearning target is $\tfrac12$ under either
-convention. We do not symmetrise: $\max(a,1-a)$ is biased upward under the
-null (it reads $\approx0.54$ when the truth is $0.50$), which would
-manufacture signal at precisely the point these experiments measure.
+The score is oriented by the usual membership-inference convention: the
+\emph{member} hypothesis scores higher, so a working attack reads
+$\mathrm{AUC}>\tfrac12$ and chance is $\tfrac12$. Since the full model has seen
+the forget group it fits forget-group queries \emph{better} and its
+sign-aligned residual is smaller, the membership score is the negated
+residual, $-r$. The ordering is fixed in the code rather than chosen per run,
+so it cannot be tuned after the fact. We do not symmetrise: $\max(a,1-a)$ is
+biased upward under the null (it reads $\approx0.54$ when the truth is
+$0.50$), which would manufacture signal at exactly the point these experiments
+measure.
 
 \textbf{Preservation.} How far the corrupted model has drifted from the
 retrain oracle it is meant to imitate:
@@ -226,8 +227,9 @@ significant figures.
 \small
 The brief writes $\min_\theta \mathrm{AUC}(\theta)+\lambda\|\theta\|$. Every
 measured AUC here is \emph{below} $\tfrac12$, so minimising AUC drives toward
-\emph{more} distinguishability ($0.30$ is a better adversary than $0.50$,
-merely inverted). We minimise distance from chance instead:
+\emph{more} distinguishability once past $\tfrac12$ --- $0.30$ is as good an
+adversary as $0.70$, merely inverted. We minimise distance from chance
+instead:
 \begin{equation*}
 \min_\theta\ \big(\mathrm{AUC}(\theta)-\tfrac12\big)^2 + \lambda\|\theta\| .
 \end{equation*}
@@ -316,9 +318,9 @@ Give every group the same spectrum and the same eigenbasis. Then $\Mfull$ and
 $\Morac$ trained on the same distribution, there is genuinely no membership
 information, and the pipeline \emph{must} return chance.
 
-It does: median $\mathrm{AUC}=0.502$ for both architectures across the whole
-grid, spanning $0.5002$--$0.5024$ and $0.4982$--$0.5026$. The real experiments
-below sit at $0.465$ and $0.375$ --- far outside that band. Whatever those
+It does: median $\mathrm{AUC}=0.498$ for both architectures across the whole
+grid, spanning $0.4976$--$0.4998$ and $0.4974$--$0.5018$. The real experiments
+below sit at $0.535$ and $0.625$ --- far outside that band. Whatever those
 numbers are, they are not an artifact of the attack code.
 
 % ===========================================================================
@@ -399,10 +401,11 @@ retrains inside the loop.}
 \small
 \textbf{Reading the numbers.}
 \begin{itemize}\setlength{\itemsep}{1pt}\setlength{\parskip}{0pt}\setlength{\topsep}{2pt}
-\item $\mathrm{AUC}=\tfrac12$ is the \emph{goal} --- the adversary guessing. The
-baseline sits \emph{below} $\tfrac12$ because the full model fits the forget
-group better and so ranks under the oracle; $0.375$ is a strong signal, not a
-weak one. Unlearning means driving AUC \emph{up} to $\tfrac12$.
+\item $\mathrm{AUC}=\tfrac12$ is the \emph{goal} --- the adversary guessing.
+The baseline sits \emph{above} $\tfrac12$ (a working attack) and unlearning
+means driving it \emph{down} to $\tfrac12$. Overshooting below $\tfrac12$ is
+not success either: the attack has merely inverted, and
+$|\mathrm{AUC}-\tfrac12|$ remains the signal.
 \item $\varepsilon$ small is good. It is a KL against the retrain oracle, so
 $\varepsilon\!\to\!0$ means ``indistinguishable from having retrained properly''.
 \item \textbf{Cost ratio} $=\varepsilon$ at the closest approach to chance,
@@ -436,10 +439,10 @@ the four arms above them ever reaches it.}
 \label{fig:e1}
 \end{figure}
 
-At zero corruption the adversary achieves $\mathrm{AUC}=0.465$ (ATTN-M) and
-$0.375$ (ATTN-S); per-training-seed medians span only $0.4648$--$0.4668$ and
-$0.3725$--$0.3777$, so the baselines are systematic, not sampling noise. AUC
-rises monotonically toward chance, reaching $0.498$ and $0.496$ at $\vs=100$.
+At zero corruption the adversary achieves $\mathrm{AUC}=0.535$ (ATTN-M) and
+$0.625$ (ATTN-S); per-training-seed medians span only $0.5332$--$0.5352$ and
+$0.6223$--$0.6275$, so the baselines are systematic, not sampling noise. AUC
+falls monotonically toward chance, reaching $0.502$ and $0.504$ at $\vs=100$.
 The closed form tracks the Gaussian arms to $6.4\times10^{-4}$ mean absolute
 error (max $2.9\times10^{-3}$); the Bernoulli arm is looser
 ($3.2\times10^{-3}$ mean, $1.7\times10^{-2}$ max) because its mean shift sums
@@ -452,20 +455,20 @@ only $n_f=11$ Bernoulli terms and is visibly non-Gaussian near $\theta=1$.
 \cmidrule(lr){3-4}\cmidrule(lr){5-6}
 arm & arch & $\varepsilon_{\min}$ & at & AUC ($\varepsilon$) & cost ratio\\
 \midrule
-C1     & ATTN-M & 0.00154 & $\vs\!=\!1.00$  & 0.4977 (1.170) & $762\times$\\
-C1     & ATTN-S & 0.00082 & $\vs\!=\!0.32$  & 0.4955 (1.402) & $1699\times$\\
-C2     & ATTN-M & 0.00116 & $\vs\!=\!0.18$  & 0.4981 (1.347) & $1165\times$\\
-C2     & ATTN-S & 0.00088 & $\vs\!=\!0.10$  & 0.4951 (1.435) & $1630\times$\\
-C3     & ATTN-M & 0.00158 & $\vs\!=\!0.10$  & 0.4985 (1.344) & $848\times$\\
-C3     & ATTN-S & 0.00102 & $\vs\!=\!0.10$  & 0.4965 (1.405) & $1379\times$\\
+C1     & ATTN-M & 0.00154 & $\vs\!=\!1.00$  & 0.5023 (1.170) & $762\times$\\
+C1     & ATTN-S & 0.00082 & $\vs\!=\!0.32$  & 0.5045 (1.402) & $1699\times$\\
+C2     & ATTN-M & 0.00116 & $\vs\!=\!0.18$  & 0.5019 (1.347) & $1165\times$\\
+C2     & ATTN-S & 0.00088 & $\vs\!=\!0.10$  & 0.5049 (1.435) & $1630\times$\\
+C3     & ATTN-M & 0.00158 & $\vs\!=\!0.10$  & 0.5015 (1.344) & $848\times$\\
+C3     & ATTN-S & 0.00102 & $\vs\!=\!0.10$  & 0.5035 (1.405) & $1379\times$\\
 \addlinespace
-flip   & ATTN-M & 0.00157 & $t\!=\!0.10$    & 0.5006 (0.209) & $133\times$\\
-flip   & ATTN-S & 0.00139 & $t\!=\!0.10$    & 0.4979 (0.252) & $181\times$\\
-bern   & ATTN-M & 0.00125 & $\theta\!=\!0.05$ & 0.4995 (0.145) & $\mathbf{116\times}$\\
-bern   & ATTN-S & 0.00108 & $\theta\!=\!0.05$ & 0.4979 (0.252) & $\mathbf{234\times}$\\
+flip   & ATTN-M & 0.00157 & $t\!=\!0.10$    & 0.4994 (0.209) & $133\times$\\
+flip   & ATTN-S & 0.00139 & $t\!=\!0.10$    & 0.5021 (0.252) & $181\times$\\
+bern   & ATTN-M & 0.00125 & $\theta\!=\!0.05$ & 0.5005 (0.145) & $\mathbf{116\times}$\\
+bern   & ATTN-S & 0.00108 & $\theta\!=\!0.05$ & 0.5021 (0.252) & $\mathbf{234\times}$\\
 \addlinespace
-whiten & ATTN-M & 0.00134 & $m\!=\!0.75$    & 0.4707 (0.002) & never reaches\\
-whiten & ATTN-S & 0.00133 & $m\!=\!0.25$    & 0.3883 (0.004) & never reaches\\
+whiten & ATTN-M & 0.00134 & $m\!=\!0.75$    & 0.5293 (0.002) & never reaches\\
+whiten & ATTN-S & 0.00133 & $m\!=\!0.25$    & 0.6117 (0.004) & never reaches\\
 \bottomrule
 \end{tabular}
 \caption{All six arms on identical data. ``Cost ratio'' is $\varepsilon$ at the
@@ -517,10 +520,10 @@ undefined --- AUC does not move toward chance there at all --- and no claim
 here rests on that region.)
 
 \paragraph{Result 3.} The arms are not equally bad, and they separate by
-\emph{which moment} they move. The Gaussian arms never exceed $0.499$; the
-deterministic flip rises \emph{through} chance to $0.527$ and $0.539$, exactly
+\emph{which moment} they move. The Gaussian arms never go below $0.501$; the
+deterministic flip falls \emph{through} chance to $0.473$ and $0.461$, exactly
 as the $\Phi$ argument above predicts. Whitening barely moves at all
-($0.465\to0.471$). The stochastic flip, carrying both channels, is the
+($0.535\to0.529$). The stochastic flip, carrying both channels, is the
 cheapest arm in the table by a factor of $\sim\!7$.
 
 % ===========================================================================
@@ -615,7 +618,7 @@ question here is whether the conclusion survives when the input clouds are real
 and messy --- genuinely non-Gaussian, correlated, whatever handwritten digits
 happen to be --- rather than designed.
 
-It does, and the gap widens. Baseline AUC is $0.404$ (ATTN-M) and $0.434$
+It does, and the gap widens. Baseline AUC is $0.596$ (ATTN-M) and $0.566$
 (ATTN-S), a \emph{stronger} membership signal than the synthetic task, and the
 closed form is if anything more accurate here ($4.6\times10^{-4}$ and
 $3.8\times10^{-4}$ mean absolute error on C1 and C2).
@@ -627,13 +630,13 @@ $3.8\times10^{-4}$ mean absolute error on C1 and C2).
 \cmidrule(lr){3-4}\cmidrule(lr){5-6}
 arm & arch & $\varepsilon_{\min}$ & at & AUC ($\varepsilon$) & cost ratio\\
 \midrule
-C1   & ATTN-M & 0.00021 & $\vs\!=\!0.01$  & 0.4974 (0.923) & $4375\times$\\
-C1   & ATTN-S & 0.00015 & $\vs\!=\!0$     & 0.4977 (1.193) & $7838\times$\\
-C2   & ATTN-M & 0.00021 & $\vs\!=\!0.001$ & 0.4971 (1.020) & $4798\times$\\
-C2   & ATTN-S & 0.00015 & $\vs\!=\!0$     & 0.4977 (1.084) & $7122\times$\\
+C1   & ATTN-M & 0.00021 & $\vs\!=\!0.01$  & 0.5026 (0.923) & $4375\times$\\
+C1   & ATTN-S & 0.00015 & $\vs\!=\!0$     & 0.5023 (1.193) & $7838\times$\\
+C2   & ATTN-M & 0.00021 & $\vs\!=\!0.001$ & 0.5029 (1.020) & $4798\times$\\
+C2   & ATTN-S & 0.00015 & $\vs\!=\!0$     & 0.5023 (1.084) & $7122\times$\\
 \addlinespace
-bern & ATTN-M & 0.00021 & $\theta\!=\!0$  & 0.4990 (0.059) & $\mathbf{279\times}$\\
-bern & ATTN-S & 0.00015 & $\theta\!=\!0$  & 0.4988 (0.051) & $\mathbf{337\times}$\\
+bern & ATTN-M & 0.00021 & $\theta\!=\!0$  & 0.5010 (0.059) & $\mathbf{279\times}$\\
+bern & ATTN-S & 0.00015 & $\theta\!=\!0$  & 0.5012 (0.051) & $\mathbf{337\times}$\\
 \bottomrule
 \end{tabular}
 \caption{MNIST. Columns as Table~\ref{tab:e1}; again the ``at'' values are in
@@ -697,11 +700,11 @@ Experiment 1 swept $\theta$ by hand. Here Algorithm 2 optimises it.
 \cmidrule(lr){3-4}\cmidrule(lr){5-6}
 dataset & arch & $\theta^*$ & AUC ($\varepsilon$) & $\theta$ & AUC\\
 \midrule
-MNIST      & ATTN-S & 0.678 & 0.5007 (0.036) & 0.703 & 0.5025\\
-MNIST      & ATTN-M & 0.753 & 0.5018 (0.049) & 0.737 & 0.5003\\
+MNIST      & ATTN-S & 0.678 & 0.4993 (0.036) & 0.703 & 0.4975\\
+MNIST      & ATTN-M & 0.753 & 0.4982 (0.049) & 0.737 & 0.4997\\
 \addlinespace
-synthetic  & ATTN-S & 0.949 & 0.4740 (0.264) & 0.622 & 0.4577\\
-synthetic  & ATTN-M & 0.850 & 0.4894 (0.199) & 0.016 & 0.4614\\
+synthetic  & ATTN-S & 0.949 & 0.5260 (0.264) & 0.622 & 0.5423\\
+synthetic  & ATTN-M & 0.850 & 0.5106 (0.199) & 0.016 & 0.5386\\
 \bottomrule
 \end{tabular}
 \caption{Both gradient estimators. The closed form takes 1.7--2.0\,s against
@@ -714,10 +717,10 @@ synthetic  & ATTN-M & 0.850 & 0.4894 (0.199) & 0.016 & 0.4614\\
 \toprule
 dataset & arch & $\theta^*$ & AUC achieved & $\varepsilon$\\
 \midrule
-MNIST     & ATTN-S & $0.761\pm0.061$ & $\mathbf{0.5013\pm0.0005}$ & $0.053\pm0.012$\\
-MNIST     & ATTN-M & $0.816\pm0.043$ & $\mathbf{0.5016\pm0.0005}$ & $0.061\pm0.008$\\
-synthetic & ATTN-S & $0.895\pm0.091$ & $0.4926\pm0.0143$ & $0.185\pm0.065$\\
-synthetic & ATTN-M & $0.739\pm0.138$ & $0.4979\pm0.0064$ & $0.139\pm0.081$\\
+MNIST     & ATTN-S & $0.761\pm0.061$ & $\mathbf{0.4987\pm0.0005}$ & $0.053\pm0.012$\\
+MNIST     & ATTN-M & $0.816\pm0.043$ & $\mathbf{0.4984\pm0.0005}$ & $0.061\pm0.008$\\
+synthetic & ATTN-S & $0.895\pm0.091$ & $0.5074\pm0.0143$ & $0.185\pm0.065$\\
+synthetic & ATTN-M & $0.739\pm0.138$ & $0.5021\pm0.0064$ & $0.139\pm0.081$\\
 \bottomrule
 \end{tabular}
 \caption{Across all nine seed combinations, mean $\pm$ s.d.}
@@ -725,7 +728,7 @@ synthetic & ATTN-M & $0.739\pm0.138$ & $0.4979\pm0.0064$ & $0.139\pm0.081$\\
 \end{table}
 
 \paragraph{Result 6 (positive).} On MNIST the learned flip lands at
-$\mathrm{AUC}=0.5013\pm0.0005$ --- chance, to within a twentieth of a
+$\mathrm{AUC}=0.4987\pm0.0005$ --- chance, to within a twentieth of a
 percentage point, reproducibly across every seed --- at $\varepsilon\approx0.05$,
 against $\varepsilon\approx1.0$ for Gaussian noise to reach the same place.
 Three independent routes agree: the closed form gives $\theta=0.678/0.753$, a
@@ -733,7 +736,7 @@ Three independent routes agree: the closed form gives $\theta=0.678/0.753$, a
 
 \paragraph{Result 7 (limitation).} It does not transfer to the synthetic task.
 There the two estimators diverge wildly --- $\theta=0.850$ versus $0.016$ on
-ATTN-M --- and neither reaches chance. The closed form's Bernoulli error is
+ATTN-M --- and neither reaches chance ($0.5106$ and $0.5386$). The closed form's Bernoulli error is
 $3.2\times10^{-3}$ there against $1.1\times10^{-3}$ on MNIST. Result 9 below
 gives the reason, and it is structural rather than numerical.
 
@@ -780,7 +783,7 @@ row of Table~\ref{tab:thetastar} is the explanation for Result 7. Cancelling
 the baseline gap on synthetic ATTN-S requires $t=1.011$. But $\theta$ is a
 \emph{probability}: $\theta\le1$. \textbf{The required mean cancellation lies
 outside the range a label flip can deliver}, so \texttt{bern} cannot reach
-chance there in principle --- and indeed it never does, topping out at $0.4979$.
+chance there in principle --- and indeed it never does, bottoming out at $0.5021$.
 The optimiser returning $\theta^*=0.895\pm0.091$ is not converging badly; it is
 saturating against a boundary. Synthetic ATTN-M sits just inside the feasible
 region and is correspondingly noisy.
@@ -814,7 +817,7 @@ $\pm1$.)
 \multicolumn{3}{l}{\emph{Where it is --- the first moment, and it can be computed}}\\
 8 & The optimum is mean-compensating & flips $68$--$82\%$ of labels\\
  & \quad and is predicted in closed form by \eqref{eq:thetastar} & agrees to $0.02$ on MNIST\\
-6 & A learned flip does reach chance, on MNIST & $0.5013\pm0.0005$, $\varepsilon\approx0.05$\\
+6 & A learned flip does reach chance, on MNIST & $0.4987\pm0.0005$, $\varepsilon\approx0.05$\\
 \addlinespace
 \multicolumn{3}{l}{\emph{Where the argument stops}}\\
 9 & Synthetic ATTN-S needs $\theta^*>1$ --- infeasible & \texttt{flip} crosses at $t=1.011$\\

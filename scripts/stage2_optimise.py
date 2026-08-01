@@ -71,7 +71,8 @@ def empirical_auc_and_eps(M_full, M_oracle, probe, spec, theta_mask, gen,
     X, yl, yq = assemble(x, y)
     o1 = audit.observables(apply_frozen(M_full, X, yl, spec.N), yq)
     o0 = audit.observables(apply_frozen(M_oracle, X, yl, spec.N), yq)
-    auc = audit.membership_auc(o1["residual"], o0["residual"])
+    auc = audit.membership_auc(audit.membership_score(o1["residual"]),
+                               audit.membership_score(o0["residual"]))
 
     Xc, ylc, yqc = corrupt(probe, S, "none", 0.0, gen)
     p1 = audit.fit_residual_law(apply_frozen(M_full, Xc, ylc, spec.N), yqc)

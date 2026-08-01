@@ -77,7 +77,8 @@ def sweep_point(spec: MixtureSpec, probe: Probe, M_full: torch.Tensor,
             o0s = audit.observables(apply_frozen(M_oracle, Xs, yls, spec.N), yqs)
             for nm in o1s:
                 shared_acc.setdefault(nm, []).append(
-                    audit.membership_auc(o1s[nm], o0s[nm]))
+                    audit.membership_auc(audit.membership_score(o1s[nm]),
+                                         audit.membership_score(o0s[nm])))
 
     obs1 = audit.observables(yhat1, yq1)
     obs0 = audit.observables(yhat0, yq0)
@@ -87,23 +88,25 @@ def sweep_point(spec: MixtureSpec, probe: Probe, M_full: torch.Tensor,
 
     rec = {"mode": mode, "param": float(param)}
     for name in ("loss", "residual"):
-        a = audit.membership_auc(obs1[name], obs0[name])
+        a = audit.membership_auc(audit.membership_score(obs1[name]),
+                                 audit.membership_score(obs0[name]))
         rec[f"auc_{name}"] = a
 
-        am, lo, hi = audit.membership_auc_ci(obs1[name], obs0m[name],
+        am, lo, hi = audit.membership_auc_ci(audit.membership_score(obs1[name]),
+                                             audit.membership_score(obs0m[name]),
                                              n_boot=n_boot, seed=boot_seed)
         rec[f"auc_matched_{name}"] = am
         rec[f"auc_matched_{name}_lo"] = lo
         rec[f"auc_matched_{name}_hi"] = hi
         # correct aggregation order: symmetrise per probe point, then average
         rec[f"auc_matched_{name}_sym"] = audit.symmetrised_auc_per_probe(
-            obs1[name], obs0m[name])
+            audit.membership_score(obs1[name]), audit.membership_score(obs0m[name]))
 
         a_sh = (sum(shared_acc[name]) / len(shared_acc[name])
                 if stochastic else am)
         rec[f"auc_shared_{name}"] = a_sh
         # positive => part of the AUC drop is variance masking, not removal
-        rec[f"masking_{name}"] = a_sh - am
+        rec[f"masking_{name}"] = am - a_sh
 
         # Both spreads must come from the SAME context, or the masking
         # diagnostic is meaningless: obs1 is scored on the corrupted probe, so
@@ -118,7 +121,7 @@ def sweep_point(spec: MixtureSpec, probe: Probe, M_full: torch.Tensor,
     # the un-aligned output observable, kept ONLY to quantify sign cancellation:
     # this is the quantity that pins to ~0.5 regardless of the true signal
     rec["auc_matched_output_unaligned"] = audit.membership_auc(
-        raw1["output"], raw0m["output"])
+        audit.membership_score(raw1["output"]), audit.membership_score(raw0m["output"]))
 
     # Closed-form prediction, independent of everything measured above. Where
     # this tracks auc_matched_residual, the pipeline and the algebra agree;
