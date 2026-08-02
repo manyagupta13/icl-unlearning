@@ -28,6 +28,12 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "src"))
 
 from icl_unlearning.diagnose import _gini, describe_policy   # noqa: E402
 
+# float64 throughout. The checks below assert exact identities (T = R = 1 for
+# a uniform policy) to 1e-9, which float32 cannot deliver -- torch.randn's
+# default dtype gave ~1e-7 residuals here that looked like failures but were
+# rounding, not a bug in the metric. verify_softmax.py makes the same choice
+# for the same reason.
+torch.set_default_dtype(torch.float64)
 torch.manual_seed(0)
 P, n_f = 64, 11
 L = torch.randn(P, n_f)

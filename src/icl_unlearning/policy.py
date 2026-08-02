@@ -1,4 +1,4 @@
-"""
+r"""
 Stage 2: a LEARNED in-context corruption, p_theta(xtilde_f, ytilde_f | x_f, y_f).
 
 This implements the "Generalize" half of the brief. Stage 1 sweeps hand-designed
