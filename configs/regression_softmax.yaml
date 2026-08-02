@@ -1,0 +1,82 @@
+name: regression_softmax         # artifact suffix; clone this file to run variants
+
+data:
+  D: 4
+  N: 31
+  basis: identity          # "random" to rotate each group into its own eigenbasis
+  seed: 0
+  groups: [z1, z2, z3]
+  forget: z3               # the flattest spectrum / least-learned group
+  eigs:                    # trace-normalised internally
+    z1: [0.70, 0.15, 0.10, 0.05]     # PR 1.91  highly anisotropic
+    z2: [0.60, 0.20, 0.10, 0.10]     # PR 2.38  anisotropic
+    z3: [0.40, 0.30, 0.20, 0.10]     # PR 3.33  flattest
+
+probe:
+  P: 64                    # probe points, frozen across shadows
+  counts: {z1: 10, z2: 10, z3: 11}
+  seed: 777
+  n_probe_seeds: 3         # run_auc_sweep.py rebuilds the probe with seeds
+                           # 777, 778, 779 and reports the spread across them,
+                           # not just the within-run bootstrap CI -- see
+                           # NOTES.md section 2
+
+train:
+  # Softmax attention. Same tokens, same one layer, same read-out position as
+  # ATTN-S/ATTN-M -- the ONLY difference is that the mixing weights come from a
+  # softmax over the context instead of the constant 1/(N+1). Varying anything
+  # else at the same time would confound the nonlinearity with capacity.
+  archs: [ATTN-SM]
+  n_shadows: 512           # per hypothesis; matches the linear configs, so the
+                           # AUC estimator noise is comparable across archs
+  batch_per_shadow: 8
+  steps: 6000
+  # adam, not sgd. The sgd choice in the linear configs exists to keep ATTN-S's
+  # saddle-to-saddle staircase visible; there is no staircase to preserve here,
+  # and sgd at this lr barely moves the attention logits off their near-uniform
+  # initialisation within the step budget.
+  optim: adam
+  lr: 0.001                # adam, so the lr/(1-momentum) note in the linear
+                           # configs does not apply; momentum below is unused
+  momentum: 0.9            # ignored by the adam branch of train_ensemble
+  grad_clip: 5.0
+  init_scale: 0.05         # small: keeps the initial attention logits near zero
+                           # so alpha starts near-uniform, which is the softmax
+                           # analogue of the linear model's 1/(N+1)
+  seed: 1
+  n_train_seeds: 3
+
+sweep:
+  seed: 2
+  n_boot: 200              # bootstrap resamples for the AUC confidence band
+  n_shared_reps: 16        # independent shared-noise draws for the masking
+                           # control; a single draw gives an unreadably jagged
+                           # curve because all shadows then see one realisation
+  mmd_max_n: 2000          # subsample cap for mmd2's pairwise distance matrix;
+                           # at n_shadows=512 the un-capped population (32768
+                           # points/side) needs 32 GiB for the full O(n^2)
+                           # matrix and will OOM on most GPUs
+  grids:
+    none:  [0.0]
+    # log-dense in sigma^2: the AUC-vs-variance curve is the headline figure,
+    # and a 10-point grid over 4 decades cannot resolve a transition.
+    C1:    [0.0, 0.001, 0.00178, 0.00316, 0.00562, 0.01, 0.0178, 0.0316,
+            0.0562, 0.1, 0.178, 0.316, 0.562, 1.0, 1.78, 3.16, 5.62, 10.0,
+            17.8, 31.6, 100.0]
+    C2:    [0.0, 0.001, 0.00178, 0.00316, 0.00562, 0.01, 0.0178, 0.0316,
+            0.0562, 0.1, 0.178, 0.316, 0.562, 1.0, 1.78, 3.16, 5.62, 10.0,
+            17.8, 31.6, 100.0]
+    C3:    [0.0, 0.001, 0.01, 0.0316, 0.1, 0.316, 1.0, 3.16, 10.0]
+    # grid t finely near 0.5: that is the zero-mean dead zone
+    flip:  [0.0, 0.1, 0.2, 0.3, 0.4, 0.44, 0.46, 0.48, 0.5, 0.52, 0.54, 0.56,
+            0.6, 0.7, 0.8, 0.9, 1.0, 1.1, 1.25]
+    # Bernoulli flip: t is a PROBABILITY, so the grid stops at 1. Variance is
+    # 4t(1-t), maximal at t=0.5 and zero at both ends -- sample t=0.5 finely,
+    # since that is where `bern` and the deterministic `flip` differ most.
+    bern:  [0.0, 0.05, 0.1, 0.15, 0.2, 0.25, 0.3, 0.35, 0.4, 0.45, 0.5,
+            0.55, 0.6, 0.65, 0.7, 0.75, 0.8, 0.85, 0.9, 0.95, 1.0]
+    whiten: [0.0, 0.125, 0.25, 0.375, 0.5, 0.625, 0.75, 0.875, 1.0]
+
+paths:
+  artifacts: artifacts
+  figures: figures

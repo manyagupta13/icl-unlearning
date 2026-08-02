@@ -71,6 +71,13 @@ def readout_covector(M: torch.Tensor, probe: Probe):
         c_y   [S, P]        label block of c
         yhat0 [S, P]        prediction on the CLEAN probe
     """
+    if not isinstance(M, torch.Tensor):
+        raise TypeError(
+            "readout_covector needs a linear read-out matrix. This ensemble is "
+            f"{type(M).__name__}, whose prediction is not linear in the labels, "
+            "so the moments in this module do not apply. Use "
+            "diagnose.token_lever_numeric for the per-token lever and "
+            "policy.reinforce_grad for Stage 2.")
     S = M.shape[0]
     x = probe.x.unsqueeze(0).expand(1, *probe.x.shape)
     y = probe.y.unsqueeze(0).expand(1, *probe.y.shape)

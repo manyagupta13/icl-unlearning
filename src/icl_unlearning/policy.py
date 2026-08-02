@@ -172,7 +172,20 @@ def policy_auc(M_full: torch.Tensor, M_oracle: torch.Tensor, probe: Probe,
     two variance sources (shadow spread + per-shadow corruption draw), same
     per-probe-point averaging -- but with the corruption moments coming from
     `policy` instead of a fixed sigma^2. Returns a scalar tensor with grad.
+
+    LINEAR ARCHITECTURES ONLY. bern_moments is exact because the prediction is
+    linear in the labels, so the expectation over independent flips factors. If
+    the attention weights themselves depend on the labels that is false, and
+    every step below would be quietly computing the wrong objective. Refusing
+    is the only safe behaviour; use reinforce_grad there.
     """
+    if not isinstance(M_full, torch.Tensor):
+        raise TypeError(
+            f"policy_auc needs a linear read-out; got {type(M_full).__name__}. "
+            "The closed-form AUC assumes the prediction is linear in the "
+            "labels, which fails once the attention weights depend on them. "
+            "Optimise with policy.reinforce_grad instead -- see "
+            "scripts/stage2_conditional.py --estimator reinforce.")
     sl = probe.forget_slice
     N = probe.x.shape[1] - 1
     x_f, y_f = probe.x[:, sl, :], probe.y[:, sl]

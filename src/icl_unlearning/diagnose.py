@@ -26,6 +26,12 @@ L_i is this token's lever on mu1 - mu0. Spending flip budget on a token with
 does not move. This is the quantity the conditional policy can see and the
 scalar policy cannot, so it is the one to measure against.
 
+`token_lever` computes L_i from the closed form and needs a linear read-out.
+`token_lever_numeric` measures the same quantity by flipping one token at a
+time, and works for any architecture including softmax attention. On the linear
+archs the two agree to floating-point precision, which is what licenses using
+the numeric one where no closed form exists.
+
 TWO MECHANISMS, BOTH FALSIFIABLE
 --------------------------------
 1. TARGETING. Put budget on high-|L_i| tokens. Measured by
@@ -66,7 +72,8 @@ from __future__ import annotations
 
 import torch
 
-from .data import Probe
+from .data import Probe, assemble
+from .models import apply_frozen
 from .theory import readout_covector
 
 
@@ -118,6 +125,65 @@ def token_lever(M_full: torch.Tensor, M_oracle: torch.Tensor,
         bar.append(a.mean(dim=0))                              # [P, n_f]
 
     return sgn[:, None] * (-2.0 / (N + 1)) * (bar[0] - bar[1])
+
+
+@torch.no_grad()
+def token_lever_numeric(M_full, M_oracle, probe: Probe,
+                        chunk: int = 4) -> torch.Tensor:
+    """
+    The same L_i, measured instead of derived. Works for ANY architecture.
+    Returns [P, n_f].
+
+    Flip token i's label deterministically, on its own, and record how far the
+    prediction moves under each hypothesis:
+
+        L_i = sgn(y_q) . ( E_s[yhat_full(flip i)] - E_s[yhat_full]
+                          - E_s[yhat_orac(flip i)] + E_s[yhat_orac] )
+
+    For the linear archs this is EXACTLY the analytic lever, not an
+    approximation: flipping y_i changes the context vector by [-2 x_i y_i ; 0]
+    -- the label-label block is untouched because y_i^2 is even -- so the
+    prediction moves by -2 a_i / (N+1), which is the analytic expression term
+    for term. tests/verify_softmax.py checks the two agree to floating-point
+    precision, which is what licenses using this version on the softmax model.
+
+    The honest caveat: for a nonlinear architecture this is the derivative of
+    the mean shift with respect to theta_i AT theta = 0, because a second
+    simultaneous flip no longer adds independently. It stays the right notion
+    of "how much can this token move the gap", but it stops being exact away
+    from small budgets, and a targeting statistic built on it is a local one.
+    For the linear archs no such caveat applies.
+
+    Cost is n_f + 1 forward passes per hypothesis. `chunk` bounds how many
+    single-token variants are batched at once, since each one materialises a
+    full [S, P, N+1, D+1] context.
+    """
+    sl = probe.forget_slice
+    n_f = sl.stop - sl.start
+    S = M_full.shape[0]
+
+    yq = probe.y[:, -1]
+    sgn = torch.sign(yq)
+    sgn = torch.where(sgn == 0, torch.ones_like(sgn), sgn)
+
+    def mean_pred(M, y):
+        X, ylab, _ = assemble(probe.x.unsqueeze(0).expand(S, *probe.x.shape), y)
+        return apply_frozen(M, X, ylab, probe.x.shape[1] - 1).mean(dim=0)
+
+    y0 = probe.y.unsqueeze(0).expand(S, *probe.y.shape)
+    base = [mean_pred(M, y0) for M in (M_full, M_oracle)]        # each [P]
+
+    cols = []
+    for start in range(0, n_f, chunk):
+        stop = min(start + chunk, n_f)
+        for j in range(start, stop):
+            y = y0.clone()
+            y[:, :, sl.start + j] *= -1.0
+            d_full = mean_pred(M_full, y) - base[0]
+            d_orac = mean_pred(M_oracle, y) - base[1]
+            cols.append(sgn * (d_full - d_orac))
+
+    return torch.stack(cols, dim=-1)                              # [P, n_f]
 
 
 @torch.no_grad()

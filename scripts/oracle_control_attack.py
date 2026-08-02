@@ -44,7 +44,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "src"))
 
 from icl_unlearning import audit                            # noqa: E402
 from icl_unlearning.data import build_spec, make_sequences  # noqa: E402
-from icl_unlearning.models import apply_frozen              # noqa: E402
+from icl_unlearning.models import apply_frozen, frozen_from_blob  # noqa: E402
 
 
 def main():
@@ -78,7 +78,7 @@ def main():
     results = {}
     for arch in tr["archs"]:
         for hyp in ("full", "oracle"):
-            M = blob[f"{arch}|{hyp}|M"].to(dev)
+            M = frozen_from_blob(blob[f"{arch}|{hyp}|M"]).to(dev)
             S = M.shape[0]
             gen = torch.Generator(device=dev).manual_seed(4242)
 

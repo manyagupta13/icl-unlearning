@@ -32,6 +32,7 @@ import yaml
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "src"))
 
 from icl_unlearning.data import build_spec               # noqa: E402
+from icl_unlearning.models import frozen_to_blob         # noqa: E402
 from icl_unlearning.train import per_group_mse, train_ensemble   # noqa: E402
 
 
@@ -82,12 +83,14 @@ def main():
                     init_scale=tr["init_scale"],
                     seed=train_seed + stable_offset(arch, hyp),
                     device=dev)
-                out[f"{arch}|{hyp}|M"] = M.cpu()
+                out[f"{arch}|{hyp}|M"] = frozen_to_blob(M)
                 out[f"{arch}|{hyp}|trace"] = trace.cpu()
+                if hyp == "full":
+                    full_frozen = M
 
             # sanity: per-group MSE should track participation ratio
             gen = torch.Generator(device=dev).manual_seed(999)
-            mse = per_group_mse(spec, out[f"{arch}|full|M"].to(dev), arch,
+            mse = per_group_mse(spec, full_frozen, arch,
                                 tr["n_shadows"], gen, dev)
             print(f"  per-group MSE: " + "  ".join(f"{g}={v:.4f}" for g, v in mse.items()))
             out[f"{arch}|per_group_mse"] = torch.tensor([mse[g] for g in spec.names])

@@ -34,7 +34,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "src"))
 from icl_unlearning import audit                                # noqa: E402
 from icl_unlearning.corrupt import corrupt                      # noqa: E402
 from icl_unlearning.data import build_spec, make_probe         # noqa: E402
-from icl_unlearning.models import apply_frozen                  # noqa: E402
+from icl_unlearning.models import apply_frozen, frozen_from_blob  # noqa: E402
 from icl_unlearning.policy import (ConditionalBernoulli,        # noqa: E402
                                    ScalarBernoulli, objective_value,
                                    policy_auc, reinforce_grad)
@@ -115,8 +115,8 @@ def main():
            "lam": args.lam, "archs": {}}
 
     for arch in tr["archs"]:
-        M_full = blob[f"{arch}|full|M"].to(dev)
-        M_oracle = blob[f"{arch}|oracle|M"].to(dev)
+        M_full = frozen_from_blob(blob[f"{arch}|full|M"]).to(dev)
+        M_oracle = frozen_from_blob(blob[f"{arch}|oracle|M"]).to(dev)
 
         pol = (ScalarBernoulli().to(dev) if args.policy == "scalar"
                else ConditionalBernoulli(d["D"]).to(dev))

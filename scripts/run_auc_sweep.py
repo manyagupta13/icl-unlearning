@@ -26,6 +26,7 @@ import yaml
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "src"))
 
 from icl_unlearning.data import build_spec, make_probe    # noqa: E402
+from icl_unlearning.models import frozen_from_blob         # noqa: E402
 from icl_unlearning.sweep import run_sweep                 # noqa: E402
 
 
@@ -55,7 +56,8 @@ def main():
         ensembles = {}
         for arch in tr["archs"]:
             for hyp in ("full", "oracle"):
-                ensembles[(arch, hyp)] = blob[f"{arch}|{hyp}|M"].to(dev)
+                ensembles[(arch, hyp)] = frozen_from_blob(
+                    blob[f"{arch}|{hyp}|M"]).to(dev)
 
         for ps in range(n_probe_seeds):
             probe_seed = pr["seed"] + ps

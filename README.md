@@ -111,22 +111,47 @@ whether matching the input distribution is enough on its own. It isn't.
 ```
 src/icl_unlearning/
   data.py      MixtureSpec (Gaussian groups), MnistSpec (real images), probes
-  models.py    ATTN-S (factored M) / ATTN-M (merged M)
+  models.py    ATTN-S (factored M) / ATTN-M (merged M) / ATTN-SM (softmax)
   train.py     ensemble training, S shadows in parallel
   corrupt.py   the six corruption families
   audit.py     membership AUC, bootstrap CI, residual-law fit, alpha/eps, MMD
   sweep.py     sweep loop + shared-noise masking control
   theory.py    closed-form AUC(σ²), exact Bernoulli-flip moments
   policy.py    Stage 2 policies, differentiable AUC, REINFORCE estimator
+  diagnose.py  per-token lever, targeting and polarisation statistics
 
-scripts/       train_ensembles, run_auc_sweep, plot_*, stage2_optimise
+scripts/       train_ensembles, run_auc_sweep, plot_*, stage2_optimise,
+               stage2_conditional
                plus controls and diagnostics (oracle_control_attack,
                check_null, check_spectral_scaling, mnist_pr_probe)
-configs/       regression.yaml, mnist.yaml, classification.yaml
+configs/       regression.yaml, mnist.yaml, classification.yaml,
+               regression_softmax.yaml, mnist_softmax.yaml
 tests/         correctness checks
 report/        paper.tex, paper.pdf, fig/
 docs/          working notes, kept dated — see the note at the top of each
 ```
+
+## Follow-up experiments
+
+Two things the paper lists as open are now implemented but not yet run. Both are
+set up so that a negative result is as reportable as a positive one.
+
+**Per-token corruption.** Stage 2 as reported learns one flip probability for
+the whole forget group. `ConditionalBernoulli` learns one per token. The question
+is not whether it wins but whether it wins by concentrating its budget on the
+tokens with the largest lever on the hypothesis gap, which is what the moment
+argument predicts. `diagnose.py` measures that directly, and both its statistics
+equal 1 for a scalar policy by construction, so the scalar is the null. See
+[`docs/RUN_CONDITIONAL.md`](docs/RUN_CONDITIONAL.md).
+
+**A second architecture.** ATTN-S and ATTN-M share a forward pass, so they are
+one architecture in two parameterisations. `ATTN-SM` is one layer of softmax
+attention on the same tokens — the smallest change that makes the prediction
+nonlinear in the labels. That breaks every closed form in `theory.py` and
+`policy.py`, which now raise rather than return a plausible wrong number, and
+Stage 2 there runs on REINFORCE instead. Because the estimator changes along
+with the architecture, the comparison needs the linear model run under REINFORCE
+too as a control. See [`docs/RUN_SOFTMAX.md`](docs/RUN_SOFTMAX.md).
 
 ## Tests
 
@@ -139,6 +164,8 @@ python tests/verify_c3.py
 python tests/verify_oracle_attack.py
 python tests/test_sanity.py
 python tests/verify_batch_preflight.py   # config/compile check, no GPU
+python tests/verify_diagnose.py   # targeting/polarisation statistics
+python tests/verify_softmax.py    # softmax arch + numeric-vs-closed-form lever
 ```
 
 `verify_bern.py` is the one that matters for Stage 2. It confirms
@@ -157,5 +184,7 @@ there needs a flip fraction above 1, which a probability can't deliver, so the
 optimiser saturates against the bound. This is structural, not a tuning
 problem — Result 9 in the paper.
 
-Two datasets, one architecture family. The conditional policy
-`p_θ(·|x_f, y_f)` is in `policy.py` but not reported.
+Two datasets, one architecture family. Everything in the paper is measured on
+the linear read-out, and the closed-form results depend on it. The softmax
+architecture and the conditional policy are implemented and tested but not yet
+run — see Follow-up experiments above.

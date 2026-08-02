@@ -43,8 +43,10 @@ sys.path.insert(0, str(_ROOT / "scripts"))
 
 from icl_unlearning import diagnose                             # noqa: E402
 from icl_unlearning.data import build_spec, make_probe          # noqa: E402
+from icl_unlearning.models import frozen_from_blob              # noqa: E402
 from icl_unlearning.policy import (ConditionalBernoulli,        # noqa: E402
-                                   ScalarBernoulli, policy_auc)
+                                   ScalarBernoulli, policy_auc,
+                                   reinforce_grad)
 
 # Reuse the measurement from stage2_optimise rather than reimplementing it. The
 # comparison is only meaningful if both scripts measure AUC and eps the same
@@ -52,27 +54,62 @@ from icl_unlearning.policy import (ConditionalBernoulli,        # noqa: E402
 from stage2_optimise import empirical_auc_and_eps               # noqa: E402
 
 
-def _fit(policy, probe, M_full, M_oracle, lam, steps, lr):
-    """Train one policy at one lambda. Returns the fitted policy."""
+def _fit(policy, probe, spec, M_full, M_oracle, lam, steps, lr,
+         estimator="closed_form", gen=None, n_samples=32):
+    """
+    Train one policy at one lambda. Returns the fitted policy.
+
+    Two estimators, chosen by architecture rather than by preference:
+
+      closed_form  the differentiable Gaussian AUC of policy.py. Exact for the
+                   linear archs, unavailable otherwise.
+      reinforce    the score-function estimator, scoring each sampled flip mask
+                   through the actual frozen forward pass. Makes no linearity
+                   assumption and no Gaussian assumption, so it is the only
+                   option on ATTN-SM -- but it is high variance, which is why
+                   the step count is raised and the same lambda grid will not
+                   converge as tightly. That difference is a property of the
+                   estimator, not of the architecture, and must not be read as
+                   a finding about softmax attention.
+    """
     x_f = probe.x[:, probe.forget_slice, :]
     y_f = probe.y[:, probe.forget_slice]
     opt = torch.optim.Adam(policy.parameters(), lr=lr)
+
+    if estimator == "closed_form":
+        for _ in range(steps):
+            opt.zero_grad(set_to_none=True)
+            auc = policy_auc(M_full, M_oracle, probe, policy)
+            loss = (auc - 0.5) ** 2 + lam * policy.budget(x_f, y_f)
+            loss.backward()
+            opt.step()
+        return policy
+
+    def auc_fn(B):
+        a, _ = empirical_auc_and_eps(M_full, M_oracle, probe, spec,
+                                     B.unsqueeze(0), gen, sample=False)
+        return (a - 0.5) ** 2
+
     for _ in range(steps):
         opt.zero_grad(set_to_none=True)
-        auc = policy_auc(M_full, M_oracle, probe, policy)
-        loss = (auc - 0.5) ** 2 + lam * policy.budget(x_f, y_f)
-        loss.backward()
+        loss, _, _ = reinforce_grad(M_full, M_oracle, probe, policy, auc_fn,
+                                    n_samples=n_samples)
+        # the budget term is differentiable directly; only the AUC needs the
+        # score-function route
+        (loss + lam * policy.budget(x_f, y_f)).backward()
         opt.step()
     return policy
 
 
-def _evaluate(policy, probe, spec, M_full, M_oracle, lever, gen):
-    """Closed-form AUC, measured AUC, eps, and the targeting diagnostics."""
+def _evaluate(policy, probe, spec, M_full, M_oracle, lever, gen, linear):
+    """Measured AUC, eps, the targeting diagnostics, and -- where it exists --
+    the closed-form AUC as a cross-check on the measurement."""
     x_f = probe.x[:, probe.forget_slice, :]
     y_f = probe.y[:, probe.forget_slice]
     with torch.no_grad():
         theta = policy(x_f, y_f)
-        auc_cf = float(policy_auc(M_full, M_oracle, probe, policy))
+        auc_cf = (float(policy_auc(M_full, M_oracle, probe, policy))
+                  if linear else float("nan"))
         auc_emp, eps = empirical_auc_and_eps(M_full, M_oracle, probe, spec,
                                              theta.unsqueeze(0), gen)
     rec = {"auc_closed_form": auc_cf, "auc_empirical": auc_emp, "eps": eps,
@@ -89,6 +126,16 @@ def main():
     ap.add_argument("--steps", type=int, default=400)
     ap.add_argument("--lr", type=float, default=0.05)
     ap.add_argument("--hidden", type=int, default=32)
+    ap.add_argument("--estimator", choices=["auto", "closed_form", "reinforce"],
+                    default="auto",
+                    help="'auto' uses the closed form where the read-out is "
+                         "linear and REINFORCE otherwise. Force 'reinforce' on "
+                         "a linear arch to separate estimator effects from "
+                         "architecture effects -- see docs/RUN_SOFTMAX.md")
+    ap.add_argument("--reinforce-samples", type=int, default=32)
+    ap.add_argument("--reinforce-steps", type=int, default=0,
+                    help="0 = same as --steps. REINFORCE is high variance and "
+                         "usually needs more.")
     ap.add_argument("--restarts", type=int, default=3,
                     help="random restarts for the conditional MLP; the scalar "
                          "policy is one-dimensional and does not need them, but "
@@ -120,15 +167,41 @@ def main():
 
     for arch in tr["archs"]:
         print(f"\n=== {arch} ===")
-        M_full = blob[f"{arch}|full|M"].to(dev)
-        M_oracle = blob[f"{arch}|oracle|M"].to(dev)
-        lever = diagnose.token_lever(M_full, M_oracle, probe)
+        M_full = frozen_from_blob(blob[f"{arch}|full|M"]).to(dev)
+        M_oracle = frozen_from_blob(blob[f"{arch}|oracle|M"]).to(dev)
+
+        linear = isinstance(M_full, torch.Tensor)
+        est = args.estimator
+        if est == "auto":
+            est = "closed_form" if linear else "reinforce"
+        if est == "closed_form" and not linear:
+            raise SystemExit(
+                f"--estimator closed_form is not available for {arch}: the "
+                "closed-form AUC assumes the prediction is linear in the "
+                "labels. Use 'reinforce' or 'auto'.")
+        steps = (args.reinforce_steps or args.steps) if est == "reinforce" \
+            else args.steps
+        print(f"  read-out: {'linear' if linear else 'nonlinear'}   "
+              f"estimator: {est}   steps: {steps}")
+
+        # The numeric lever is used for BOTH architecture families rather than
+        # the closed form for one and the numeric for the other. They agree
+        # exactly on the linear archs (tests/verify_softmax.py), so using one
+        # code path removes the worry that a difference between architectures
+        # is really a difference between two ways of computing the lever.
+        lever = diagnose.token_lever_numeric(M_full, M_oracle, probe)
 
         x_f = probe.x[:, probe.forget_slice, :]
         y_f = probe.y[:, probe.forget_slice]
 
-        rec = {"lever_gini": float(diagnose._gini(lever.abs())),
+        rec = {"arch": arch, "linear_readout": linear, "estimator": est,
+               "steps": steps,
+               "lever_gini": float(diagnose._gini(lever.abs())),
                "scalar": [], "conditional": [], "fixed_grid": []}
+        if linear:
+            rec["lever_max_abs_err_vs_closed_form"] = float(
+                (lever - diagnose.token_lever(M_full, M_oracle, probe))
+                .abs().max())
 
         # ---- floor: no learning at all, just a fixed theta on the Stage-1 grid
         t0 = time.time()
@@ -142,10 +215,12 @@ def main():
         print(f"  fixed-theta grid: {time.time() - t0:.1f}s")
 
         # ---- the two learned policies, on a shared budget penalty
+        fit_kw = dict(estimator=est, gen=gen, n_samples=args.reinforce_samples)
         for lam in args.lambdas:
             pol = ScalarBernoulli().to(dev)
-            _fit(pol, probe, M_full, M_oracle, lam, args.steps, args.lr)
-            r = _evaluate(pol, probe, spec, M_full, M_oracle, lever, gen)
+            _fit(pol, probe, spec, M_full, M_oracle, lam, steps, args.lr,
+                 **fit_kw)
+            r = _evaluate(pol, probe, spec, M_full, M_oracle, lever, gen, linear)
             r["lam"] = lam
             rec["scalar"].append(r)
 
@@ -154,8 +229,10 @@ def main():
             for k in range(args.restarts):
                 torch.manual_seed(1000 * args.train_seed_idx + 10 * k + 7)
                 pol = ConditionalBernoulli(d["D"], hidden=args.hidden).to(dev)
-                _fit(pol, probe, M_full, M_oracle, lam, args.steps, args.lr)
-                r2 = _evaluate(pol, probe, spec, M_full, M_oracle, lever, gen)
+                _fit(pol, probe, spec, M_full, M_oracle, lam, steps, args.lr,
+                     **fit_kw)
+                r2 = _evaluate(pol, probe, spec, M_full, M_oracle, lever, gen,
+                               linear)
                 r2["lam"] = lam
                 r2["restart"] = k
                 if best is None or r2["dist_from_chance"] < best["dist_from_chance"]:

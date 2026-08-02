@@ -22,7 +22,7 @@ import time
 import torch
 
 from .data import MixtureSpec, make_sequences
-from .models import LinearAttnICL
+from .models import FrozenSoftmax, build_model, is_linear_arch
 
 
 def clip_grad_norm_per_shadow_(params, max_norm: float) -> torch.Tensor:
@@ -66,14 +66,16 @@ def train_ensemble(spec: MixtureSpec, groups: list[str], arch: str,
                    log_every: int = 500, trace_every: int = 1):
     """
     Returns
-        M     [S, D+1, D+1]  frozen effective read-out matrices
+        M     frozen read-out: [S, D+1, D+1] for the linear archs, a
+              FrozenSoftmax for ATTN-SM. Either is accepted by
+              models.apply_frozen and by everything downstream of it.
         trace [n_logged]     query-MSE trace (for the staircase plot)
     """
     torch.manual_seed(seed)
     gen = torch.Generator(device=device).manual_seed(seed)
 
-    model = LinearAttnICL(arch, S, spec.D, spec.N, init_scale=init_scale,
-                          device=device, dtype=dtype)
+    model = build_model(arch, S, spec.D, spec.N, init_scale=init_scale,
+                        device=device, dtype=dtype)
 
     if optim == "sgd":
         opt = torch.optim.SGD(model.parameters(), lr=lr, momentum=momentum)
@@ -104,7 +106,8 @@ def train_ensemble(spec: MixtureSpec, groups: list[str], arch: str,
                   flush=True)
 
     with torch.no_grad():
-        M = model.M.detach().clone()
+        M = (model.M.detach().clone() if is_linear_arch(arch)
+             else model.frozen())
 
     print(f"    [{arch}] done in {time.time()-t0:.0f}s  "
           f"final {sum(trace[-20:])/max(1,len(trace[-20:])):.4f}", flush=True)
@@ -112,7 +115,21 @@ def train_ensemble(spec: MixtureSpec, groups: list[str], arch: str,
     return M, torch.tensor(trace)
 
 
-def check_ensemble_health(M: torch.Tensor, arch: str, ratio_thresh: float = 20.0):
+def check_ensemble_health(M, arch: str, ratio_thresh: float = 20.0):
+    """
+    Dispatch for architectures whose frozen state is several tensors rather
+    than one matrix. The per-shadow norm is taken over all parameters
+    concatenated, which is the analogue of ||M|| and catches the same failure:
+    a shadow that diverged during training but stayed finite.
+    """
+    if not isinstance(M, torch.Tensor):
+        S = M.shape[0]
+        flat = torch.cat([v.reshape(S, -1) for v in M.params.values()], dim=1)
+        return _check_norms(flat, arch, ratio_thresh)
+    return _check_norms(M.reshape(M.shape[0], -1), arch, ratio_thresh)
+
+
+def _check_norms(M: torch.Tensor, arch: str, ratio_thresh: float = 20.0):
     """
     Flag shadows whose read-out matrix diverged. Per-shadow clipping should
     prevent this, but this is the check that would have caught the previous

@@ -127,9 +127,14 @@ def sweep_point(spec: MixtureSpec, probe: Probe, M_full: torch.Tensor,
     # this tracks auc_matched_residual, the pipeline and the algebra agree;
     # a systematic gap means one of them is wrong. C3/flip/whiten have no
     # derived form (see theory.py), so they get NaN rather than a guess.
+    # Architectures whose prediction is not linear in the labels have no closed
+    # form at all -- the softmax weights move when a label moves, so the
+    # expectation over the corruption does not factor. NaN, not a guess.
+    has_closed_form = (isinstance(M_full, torch.Tensor)
+                       and mode in ("C1", "C2", "bern"))
     rec["auc_theory_residual"] = (
         theory.predicted_auc(M_full, M_oracle, probe, mode, param)
-        if mode in ("C1", "C2", "bern") else float("nan"))
+        if has_closed_form else float("nan"))
 
     # Distributional criterion on the forget-population residual law.
     #
