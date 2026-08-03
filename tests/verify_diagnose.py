@@ -88,6 +88,20 @@ check("theta = |L|", d["spearman_theta_abs_lever"], 1.0, 1e-9)
 d = describe_policy(-L.abs(), L)
 check("theta = -|L|", d["spearman_theta_abs_lever"], -1.0, 1e-9)
 
+print("\n5b. R is undefined, not enormous, when the budget is degenerate")
+# thetabar -> 1 collapses the denominator. The old code clamped it to 1e-30 and
+# returned ~1e21; the fix drops those probe points and reports NaN. Regression
+# test for a REINFORCE run that drove thetabar to ~1.
+import math  # noqa: E402
+d = describe_policy(torch.full((P, n_f), 1.0), L)
+check("R at theta=1 is NaN", 1.0 if math.isnan(d["polarisation_R"]) else 0.0,
+      1.0, 0.0)
+check("R frac_usable at theta=1 is 0", d["polarisation_frac_usable"], 0.0, 1e-12)
+d = describe_policy(torch.full((P, n_f), 1.0 - 1e-6), L)
+finite = math.isfinite(d["polarisation_R"])
+check("R near theta=1 does not explode",
+      1.0 if (not finite or abs(d["polarisation_R"]) < 10) else 0.0, 1.0, 0.0)
+
 print("\n6. greedy targeting must register as T > 1")
 budget = 0.2
 k = int(round(budget * n_f))

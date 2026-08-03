@@ -215,9 +215,23 @@ def describe_policy(theta: torch.Tensor, lever: torch.Tensor,
     targeting = torch.where(ok, (theta * lever).sum(-1) / denom.masked_fill(~ok, 1.0),
                             torch.full_like(denom, float("nan")))
 
+    # Polarisation R = mean_i theta_i(1-theta_i) / [thetabar(1-thetabar)], the
+    # flip variance relative to a uniform policy at the same budget. It is only
+    # defined when there IS a variance channel to normalise against: as
+    # thetabar -> 0 or 1 the whole forget set becomes (near-)deterministic, the
+    # denominator collapses, and the ratio blows up to meaningless magnitudes
+    # (a 1e21 was observed in a REINFORCE run that drove thetabar to ~1). That
+    # is not a polarised policy -- it is a policy with no budget left to
+    # polarise -- so those probe points are dropped, exactly as `targeting`
+    # drops points with no shift baseline. The threshold 1e-4 corresponds to
+    # thetabar within ~1e-4 of 0 or 1; well clear of any genuine mid-range
+    # policy, whose thetabar(1-thetabar) is order 0.01-0.25.
+    pol_prod = tbar * (1.0 - tbar)                              # [P], <= 1/4
+    pol_ok = pol_prod > 1e-4
     pol_num = (theta * (1.0 - theta)).mean(-1)
-    pol_den = (tbar * (1.0 - tbar)).clamp_min(1e-30)
-    polarisation = pol_num / pol_den
+    polarisation = torch.where(
+        pol_ok, pol_num / pol_prod.masked_fill(~pol_ok, 1.0),
+        torch.full_like(pol_prod, float("nan")))
 
     absL = lever.abs()
     rho_signed = _corr(_rank(theta), _rank(lever))
@@ -241,7 +255,8 @@ def describe_policy(theta: torch.Tensor, lever: torch.Tensor,
         "theta_std_within_probe": float(theta.std(dim=-1).mean()),
         "targeting_T": float(torch.nanmean(targeting)),
         "targeting_frac_usable": frac,
-        "polarisation_R": float(polarisation.mean()),
+        "polarisation_R": float(torch.nanmean(polarisation)),
+        "polarisation_frac_usable": float(pol_ok.float().mean()),
         "spearman_theta_lever": float(rho_signed.mean()),
         "spearman_theta_abs_lever": float(rho_abs.mean()),
         "theta_by_abs_lever_bucket": buckets,
